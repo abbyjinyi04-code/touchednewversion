@@ -472,30 +472,23 @@ hr.soft{border:none;border-top:1px dashed var(--line);margin:16px 0;}
 
 </div>
 
-<!-- Firebase SDK（共享社区后端，可选；不填配置则自动本地运行） -->
-<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+<!-- Supabase SDK（国内可用的共享后端；不填配置则自动本地运行） -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <script>
 /* =========================================================
    ☁️ 后端配置区（只改这里）
    ---------------------------------------------------------
-   1) 去 https://console.firebase.google.com 新建项目
-   2) 建一个「Web 应用」，把它给的 firebaseConfig 整段复制，
-      替换下面 FIREBASE_CONFIG 的内容（apiKey 等几项）
-   3) 在 Firestore Database 里创建数据库（生产/测试模式皆可，
-      规则见随附《她触-后端设置指南》）
+   1) 去 https://supabase.com 注册（免费、免实名、免备案），新建一个 Project
+   2) 进入 Project ▸ Settings ▸ API，复制：
+        Project URL  →  SUPABASE_URL
+        anon public key  →  SUPABASE_ANON_KEY
+   3) 在 SQL Editor 里运行《她触-后端设置指南》里的建表脚本（含隐私规则）
+   4) Authentication ▸ Providers ▸ Email：关闭 "Confirm email"（秒注册）
    不填 / 保持 PASTE_ 开头 → App 自动用本地模式运行（和以前一样）
    ========================================================= */
-const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyAeablqTDy6bScu2x2cQlDtErpizSV5jdk",
-  authDomain: "touched-for-more-ppl.firebaseapp.com",
-  projectId: "touched-for-more-ppl",
-  storageBucket: "touched-for-more-ppl.firebasestorage.appspot.com",
-  messagingSenderId: "775723405979",
-  appId: "1:775723405979:web:77fb14221a1c7fdf9dac3e"
-};
+const SUPABASE_URL = "https://ngpvjqwasygjldmpoppp.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5ncHZqcXdhc3lnamxkbXBvcHBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI0NjU0NzQsImV4cCI6MjA5ODA0MTQ3NH0.pPvKBtF079a1xRJNjJwCu0O0mmYtvdvgr-EOMe6hl5g";
 </script>
 
 <script>
@@ -516,54 +509,58 @@ function loadDB(){
 function resetDB(){ localStorage.removeItem(DB_KEY); localStorage.removeItem("touched_session"); location.reload(); }
 
 /* =========================================================
-   ☁️ 云同步层（Firebase Firestore · 共享真实社区）
+   ☁️ 云同步层（Supabase · 共享真实社区）
    - 没有有效配置 → CLOUD.enabled=false，全程本地运行
    - 有配置 → onSnapshot 实时把云端数据灌入 DB（读），
      关键写操作通过 CW()/CWuser() 同步到云端（写）
    ========================================================= */
-const CLOUD = { enabled:false, db:null, auth:null, ready:false, started:false, authBusy:false };
+const CLOUD = { enabled:false, sb:null, ready:false, started:false, authBusy:false };
 
 function cloudConfigured(){
-  return FIREBASE_CONFIG && FIREBASE_CONFIG.apiKey && !/^PASTE/.test(FIREBASE_CONFIG.apiKey);
+  return SUPABASE_URL && SUPABASE_ANON_KEY && !/^PASTE/.test(SUPABASE_URL) && !/^PASTE/.test(SUPABASE_ANON_KEY);
 }
 function cloudInit(){
   if(!cloudConfigured()) return false;
-  if(typeof firebase==="undefined"){ logEvent("error","Firebase SDK 未加载（检查网络/CDN）"); return false; }
+  if(typeof supabase==="undefined" || !supabase.createClient){ logEvent("error","Supabase SDK 未加载（检查网络/CDN）"); return false; }
   try{
-    if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
-    CLOUD.db = firebase.firestore();
-    CLOUD.auth = firebase.auth();
+    CLOUD.sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     CLOUD.enabled = true;
-    logEvent("info","云端已连接：项目 "+FIREBASE_CONFIG.projectId);
+    logEvent("info","云端已连接：Supabase");
     return true;
   }catch(e){ logEvent("error","cloud init: "+e.message); CLOUD.enabled=false; return false; }
 }
-/* 手机号 → 伪邮箱（用 Email/Password 认证承载，无需短信） */
+/* 手机号 → 伪邮箱（用 邮箱+密码 认证承载，无需短信/真实邮箱） */
 function phoneToEmail(phone){ return phone+"@touched.app"; }
 function plain(o){ return JSON.parse(JSON.stringify(o)); }
-/* 写一个文档（按 obj.id） */
+/* 对象 → 数据表行：id + 用于查询/隐私的列 + data(jsonb) */
+function rowFor(coll, obj){
+  const row={ id:obj.id, data:plain(obj) };
+  if(coll==="questions"||coll==="posts"||coll==="stories"){ row.author_id=obj.authorId||null; row.created_at=obj.createdAt||now(); }
+  if(coll==="relationships"){ row.members=obj.members||[]; }
+  return row;
+}
+/* 写一行（按 id upsert） */
 function CW(coll, obj){
   if(!CLOUD.enabled || !obj || !obj.id) return;
-  try{ CLOUD.db.collection(coll).doc(obj.id).set(plain(obj)); }
-  catch(e){ logEvent("error","CW "+coll+": "+e.message); }
+  CLOUD.sb.from(coll).upsert(rowFor(coll,obj)).then(r=>{ if(r.error) logEvent("error","CW "+coll+": "+r.error.message); });
 }
-/* 写用户：只写公开字段，剥离私密数据（日记/密码绝不进公开档案） */
+/* 写用户：剥离私密数据（日记/密码绝不进公开档案） */
 function CWuser(u){
   if(!CLOUD.enabled || !u || !u.id) return;
   const pub=plain(u); delete pub.diaries; delete pub.pwd;
-  try{ CLOUD.db.collection("users").doc(u.id).set(pub,{merge:true}); }
-  catch(e){ logEvent("error","CWuser: "+e.message); }
+  CLOUD.sb.from("users").upsert({id:u.id, data:pub}).then(r=>{ if(r.error) logEvent("error","CWuser: "+r.error.message); });
 }
-/* 私密数据（只有本人可读写，存 private/{uid}） */
+/* 私密数据（只有本人可读写，存 private 表，id=自己uid） */
 function CWprivate(patch){
   if(!CLOUD.enabled || !DB.currentUserId) return;
-  try{ CLOUD.db.collection("private").doc(DB.currentUserId).set(plain(patch),{merge:true}); }
-  catch(e){ logEvent("error","CWprivate: "+e.message); }
+  DB.private=Object.assign({}, DB.private||{}, patch);
+  CLOUD.sb.from("private").upsert({id:DB.currentUserId, data:plain(DB.private)}).then(r=>{ if(r.error) logEvent("error","CWprivate: "+r.error.message); });
 }
 function CWdel(coll, id){
   if(!CLOUD.enabled) return;
-  try{ CLOUD.db.collection(coll).doc(id).delete(); }catch(e){ logEvent("error","CWdel "+coll+": "+e.message); }
+  CLOUD.sb.from(coll).delete().eq("id",id).then(r=>{ if(r.error) logEvent("error","CWdel "+coll+": "+r.error.message); });
 }
+function CWmeta(){}   // 管理员口令仅存本地，不上云
 /* 用户缓存：按需懒加载她人公开档案（不全量订阅，省读取、可扩展到上百人） */
 const _userFetching={};
 function upsertUser(u){ if(!u||!u.id) return; const i=DB.users.findIndex(x=>x.id===u.id); if(i>=0) DB.users[i]={...DB.users[i],...u}; else DB.users.push(u); }
@@ -571,63 +568,37 @@ function ensureUserLoaded(id){
   if(!CLOUD.enabled || !id) return;
   if(userById(id) || _userFetching[id]) return;
   _userFetching[id]=true;
-  CLOUD.db.collection("users").doc(id).get().then(d=>{
-    if(d.exists){ upsertUser(d.data()); try{saveDB();}catch(e){} rerenderCurrent(); }
+  CLOUD.sb.from("users").select("data").eq("id",id).maybeSingle().then(r=>{
     _userFetching[id]=false;
-  }).catch(e=>{ _userFetching[id]=false; logEvent("error","loadUser: "+e.message); });
+    if(r.data && r.data.data){ upsertUser(r.data.data); try{saveDB();}catch(e){} rerenderCurrent(); }
+  });
 }
 function prefetchAuthors(arr){ const seen={}; (arr||[]).forEach(o=>{ const a=o.authorId; if(a&&!seen[a]){ seen[a]=1; ensureUserLoaded(a); } }); }
-/* 配置型文档（管理员设置等）放在 meta/config */
-function CWmeta(){
-  if(!CLOUD.enabled || !DB.admin) return;
-  try{ CLOUD.db.collection("meta").doc("config").set(plain({admin:DB.admin})); }catch(e){}
-}
+async function cloudMaybeSeed(){}   // 演示数据通过 SQL 脚本一次性写入，客户端不再 seed
 
-/* 首次启动时，把演示数据写入云端（只做一次，靠 meta/config.seeded 标记） */
-async function cloudMaybeSeed(){
-  try{
-    const cfg=await CLOUD.db.collection("meta").doc("config").get();
-    if(cfg.exists && cfg.data().seeded) return;
-    const s=seedDB(); const batch=CLOUD.db.batch();
-    s.users.forEach(u=>batch.set(CLOUD.db.collection("users").doc(u.id), plain(u)));
-    s.questions.forEach(q=>batch.set(CLOUD.db.collection("questions").doc(q.id), plain(q)));
-    s.posts.forEach(p=>batch.set(CLOUD.db.collection("posts").doc(p.id), plain({...p,createdAt:p.createdAt||now()})));
-    s.stories.forEach(st=>batch.set(CLOUD.db.collection("stories").doc(st.id), plain(st)));
-    batch.set(CLOUD.db.collection("meta").doc("config"), {seeded:true}, {merge:true});
-    await batch.commit();
-    logEvent("info","已向云端写入演示数据（首次）");
-  }catch(e){ logEvent("error","cloudSeed: "+e.message); }
-}
+/* 拉取各表（RLS 自动限制可见范围：关系/私聊只能看到自己的） */
+function _rows(r){ return (r.data||[]).map(x=>x.data).filter(Boolean); }
+async function fetchQuestions(){ const r=await CLOUD.sb.from("questions").select("data").order("created_at",{ascending:false}).limit(60); if(r.error){logEvent("error","questions: "+r.error.message);return;} DB.questions=_rows(r); prefetchAuthors(DB.questions); CLOUD.ready=true; try{saveDB();}catch(e){} if(currentScreen==="home")renderHome(); }
+async function fetchPosts(){ const r=await CLOUD.sb.from("posts").select("data").order("created_at",{ascending:false}).limit(40); if(r.error){logEvent("error","posts: "+r.error.message);return;} DB.posts=_rows(r); prefetchAuthors(DB.posts); try{saveDB();}catch(e){} if(currentScreen==="home")renderHome(); }
+async function fetchStories(){ const r=await CLOUD.sb.from("stories").select("data").order("created_at",{ascending:false}).limit(60); if(r.error){logEvent("error","stories: "+r.error.message);return;} DB.stories=_rows(r); try{saveDB();}catch(e){} if(currentScreen==="aware")renderAware(); }
+async function fetchRelationships(){ const uid=DB.currentUserId; const r=await CLOUD.sb.from("relationships").select("data"); if(r.error){logEvent("error","relationships: "+r.error.message);return;} DB.relationships=_rows(r); DB.chats=DB.chats||{}; DB.relationships.forEach(rel=>{ DB.chats[rel.id]=rel.msgs||[]; ensureUserLoaded(rel.aId===uid?rel.bId:rel.aId); }); try{saveDB();}catch(e){} rerenderCurrent(); }
+async function fetchMe(){ const uid=DB.currentUserId; const r=await CLOUD.sb.from("users").select("data").eq("id",uid).maybeSingle(); if(r.data&&r.data.data){ upsertUser(r.data.data); try{saveDB();}catch(e){} rerenderCurrent(); } }
+async function fetchPrivate(){ const uid=DB.currentUserId; const r=await CLOUD.sb.from("private").select("data").eq("id",uid).maybeSingle(); DB.private=(r.data&&r.data.data)||{}; }
 
-/* 启动实时监听（按需 + 隐私范围）：
-   - 公开内容（问题/帖子/故事）：按时间倒序限量拉取，可扩展到上百人不爆读取
-   - 关系/私聊：只订阅「我参与的」(members 包含我)，别人的私聊读都读不到
-   - 用户档案：只订阅自己；她人按需懒加载
-   - 私密数据（日记）：只读自己的 private 文档
-*/
+/* 启动：首次拉取 + 实时订阅（任意改动→重新拉取对应表，RLS 自动过滤可见范围） */
 function cloudStart(){
   if(!CLOUD.enabled || CLOUD.started || !DB.currentUserId) return;
   CLOUD.started = true;
-  cloudMaybeSeed();
-  const uid=DB.currentUserId;
   DB.chats=DB.chats||{};
-  // 我自己的公开档案
-  CLOUD.db.collection("users").doc(uid).onSnapshot(d=>{ if(d.exists){ upsertUser(d.data()); try{saveDB();}catch(e){} rerenderCurrent(); } }, e=>logEvent("error","my user: "+e.message));
-  // 我的私密数据（仅自己可读）
-  CLOUD.db.collection("private").doc(uid).onSnapshot(d=>{ DB.private = d.exists? d.data() : {}; }, ()=>{});
-  // 公开问题
-  CLOUD.db.collection("questions").orderBy("createdAt","desc").limit(60).onSnapshot(s=>{ DB.questions=s.docs.map(d=>d.data()); prefetchAuthors(DB.questions); CLOUD.ready=true; try{saveDB();}catch(e){} if(currentScreen==="home")renderHome(); }, e=>logEvent("error","questions: "+e.message));
-  // 公开帖子
-  CLOUD.db.collection("posts").orderBy("createdAt","desc").limit(40).onSnapshot(s=>{ DB.posts=s.docs.map(d=>d.data()); prefetchAuthors(DB.posts); try{saveDB();}catch(e){} if(currentScreen==="home")renderHome(); }, e=>logEvent("error","posts: "+e.message));
-  // 她意识故事
-  CLOUD.db.collection("stories").orderBy("createdAt","desc").limit(60).onSnapshot(s=>{ DB.stories=s.docs.map(d=>d.data()); try{saveDB();}catch(e){} if(currentScreen==="aware")renderAware(); }, e=>logEvent("error","stories: "+e.message));
-  // 只订阅我参与的关系（含私聊消息）
-  CLOUD.db.collection("relationships").where("members","array-contains",uid).onSnapshot(s=>{
-    DB.relationships=s.docs.map(d=>d.data());
-    DB.relationships.forEach(r=>{ DB.chats[r.id]=r.msgs||[]; ensureUserLoaded(r.aId===uid?r.bId:r.aId); });
-    try{saveDB();}catch(e){} rerenderCurrent();
-  }, e=>logEvent("error","relationships: "+e.message));
-  // 管理员口令为本地配置，不上云（避免任何登录者读到口令）
+  fetchMe(); fetchPrivate(); fetchQuestions(); fetchPosts(); fetchStories(); fetchRelationships();
+  try{
+    CLOUD.sb.channel("touched-rt")
+      .on("postgres_changes",{event:"*",schema:"public",table:"questions"}, ()=>fetchQuestions())
+      .on("postgres_changes",{event:"*",schema:"public",table:"posts"}, ()=>fetchPosts())
+      .on("postgres_changes",{event:"*",schema:"public",table:"stories"}, ()=>fetchStories())
+      .on("postgres_changes",{event:"*",schema:"public",table:"relationships"}, ()=>fetchRelationships())
+      .subscribe();
+  }catch(e){ logEvent("error","realtime: "+e.message); }
 }
 function rerenderCurrent(){
   try{
@@ -841,22 +812,22 @@ async function doRegister(){
     emoji:"🌸", status:"", phase:"", needs:[], purpose:"", time:"", hobbies:[], mbti:"",
     skills:[], traits:[], exp:[], sign:"", temp:0, tempWeek:weekKey(), isNew:true, createdAt:now() };
   if(CLOUD.enabled){
-    // 真实身份验证：用 Email/Password 承载（手机号→伪邮箱），密码由 Firebase 安全保管，我们不存
-    try{
-      CLOUD.authBusy=true;
-      const cred=await CLOUD.auth.createUserWithEmailAndPassword(phoneToEmail(phone), p1);
-      const uid=cred.user.uid;
-      const newUser={ id:uid, phone, ...newUserBase };
-      DB.currentUserId=uid; if(!DB.users.find(u=>u.id===uid)) DB.users.push(newUser);
-      saveDB(); CWuser(newUser); cloudStart();
+    // 真实身份验证：Supabase 邮箱+密码（手机号→伪邮箱），密码由 Supabase 安全保管，我们不存
+    CLOUD.authBusy=true;
+    const {data,error}=await CLOUD.sb.auth.signUp({ email:phoneToEmail(phone), password:p1 });
+    if(error){
       CLOUD.authBusy=false;
-      showLoader("正在生成妳的专属账号…", ()=>{ toast("账号创建成功 ✨","欢迎加入她触","🎀"); startProfile(); });
-    }catch(e){
-      CLOUD.authBusy=false;
-      hint.textContent = e.code==="auth/email-already-in-use" ? "这个手机号已注册过啦，去登录吧～"
-        : e.code==="auth/weak-password" ? "密码太简单，换一个更复杂的吧" : ("注册失败："+(e.message||e.code));
-      logEvent("error","register: "+(e.code||e.message));
+      hint.textContent = /already registered|already been/i.test(error.message) ? "这个手机号已注册过啦，去登录吧～"
+        : /Password/i.test(error.message) ? "密码太简单，至少6位且复杂一点" : ("注册失败："+error.message);
+      logEvent("error","register: "+error.message); return;
     }
+    if(!data.user){ CLOUD.authBusy=false; hint.textContent="注册异常，请重试"; return; }
+    const uid=data.user.id;
+    const newUser={ id:uid, phone, ...newUserBase };
+    DB.currentUserId=uid; if(!DB.users.find(u=>u.id===uid)) DB.users.push(newUser);
+    saveDB(); CWuser(newUser); cloudStart();
+    CLOUD.authBusy=false;
+    showLoader("正在生成妳的专属账号…", ()=>{ toast("账号创建成功 ✨","欢迎加入她触","🎀"); startProfile(); });
     return;
   }
   // 本地模式
@@ -873,19 +844,17 @@ async function doLogin(){
   if(!/^\d{6,11}$/.test(phone)){ hint.textContent="请输入有效的手机号"; return; }
   if(!pwd){ hint.textContent="请输入密码"; return; }
   if(CLOUD.enabled){
-    try{
-      CLOUD.authBusy=true;
-      await CLOUD.auth.signInWithEmailAndPassword(phoneToEmail(phone), pwd);
-      const uid=CLOUD.auth.currentUser.uid;
-      DB.currentUserId=uid; DB.tutorialDone=true; saveDB(); cloudStart();
-      CLOUD.authBusy=false;
-      showLoader("登录中…", ()=>{ go("home"); navTo("home"); toast("欢迎回来 🌷","数据正在同步…",""); });
-    }catch(e){
-      CLOUD.authBusy=false;
-      hint.textContent = (e.code==="auth/wrong-password"||e.code==="auth/invalid-credential") ? "密码不正确"
-        : e.code==="auth/user-not-found" ? "没有找到这个账号，去注册一个吧～" : ("登录失败："+(e.message||e.code));
-      logEvent("error","login: "+(e.code||e.message));
+    CLOUD.authBusy=true;
+    const {data,error}=await CLOUD.sb.auth.signInWithPassword({ email:phoneToEmail(phone), password:pwd });
+    CLOUD.authBusy=false;
+    if(error){
+      hint.textContent = /Invalid login credentials/i.test(error.message) ? "手机号或密码不正确"
+        : /Email not confirmed/i.test(error.message) ? "后台还没关闭邮箱验证，请管理员处理" : ("登录失败："+error.message);
+      logEvent("error","login: "+error.message); return;
     }
+    const uid=data.user.id;
+    DB.currentUserId=uid; DB.tutorialDone=true; saveDB(); cloudStart();
+    showLoader("登录中…", ()=>{ go("home"); navTo("home"); toast("欢迎回来 🌷","数据正在同步…",""); });
     return;
   }
   // 本地模式
@@ -1304,7 +1273,7 @@ function submitAsk(){
   closeSheet();
   addTemp(10,"发出一个问题");
   showLoader("正在为妳寻找同频的姐妹…", async ()=>{
-    if(CLOUD.enabled){ try{ const s=await CLOUD.db.collection("users").limit(300).get(); s.docs.forEach(d=>upsertUser(d.data())); }catch(e){ logEvent("error","match候选: "+e.message); } }
+    if(CLOUD.enabled){ try{ const r=await CLOUD.sb.from("users").select("data").limit(300); (r.data||[]).forEach(x=>{ if(x.data) upsertUser(x.data); }); }catch(e){ logEvent("error","match候选: "+e.message); } }
     runMatch(q);
   }, 1500);
 }
@@ -2176,7 +2145,7 @@ function logout(){
 }
 function doLogout(){
   setSession("");
-  if(CLOUD.enabled && CLOUD.auth){ try{ CLOUD.auth.signOut(); }catch(e){} CLOUD.started=false; }
+  if(CLOUD.enabled && CLOUD.sb){ try{ CLOUD.sb.auth.signOut(); }catch(e){} CLOUD.started=false; }
   DB.currentUserId=null; saveDB(); closeSheet();
   document.getElementById("tabbar").classList.remove("show"); go("welcome"); resetWelcome();
 }
@@ -2303,7 +2272,7 @@ function adminMod(){
   const items=allContent().filter(i=> modFilter==="all"?true: modFilter==="hidden"?i.hidden: i.kind===modFilter);
   const filters=[["all","全部"],["问题","问题"],["帖子","帖子"],["评论","评论"],["故事","故事"],["hidden","已隐藏"]];
   let html=`<div class="adm-card"><h4>🛡️ 内容审核（${allContent().length} 条）</h4>
-    ${CLOUD.enabled?`<button class="adm-btn" onclick="adminLoadAllContent()">🔄 从云端加载更多内容</button><div class="adm-row" style="font-size:11px;">云端模式下「隐藏」对全员即时生效；「删除」仅能删自己创建的（删别人请在 Firebase 控制台操作）。</div>`:""}
+    ${CLOUD.enabled?`<button class="adm-btn" onclick="adminLoadAllContent()">🔄 从云端加载更多内容</button><div class="adm-row" style="font-size:11px;">云端模式下「隐藏」对全员即时生效；「删除」仅能删自己创建的（删别人请在 Supabase 后台操作）。</div>`:""}
     <div class="adm-tabs">${filters.map(f=>`<span class="adm-tab ${modFilter===f[0]?"on":""}" onclick="setModFilter('${f[0]}')">${f[1]}</span>`).join("")}</div>
     ${items.length?items.map(i=>`<div class="adm-row ${i.hidden?"hidden-row":""}">
       <div class="meta">${i.kind} · ${i.who} ${i.hidden?"· 已隐藏":""}</div>${escapeHtml(i.text)}
@@ -2318,11 +2287,11 @@ async function adminLoadAllContent(){
   toast("加载中…","从云端拉取内容","");
   try{
     const [q,p,s]=await Promise.all([
-      CLOUD.db.collection("questions").orderBy("createdAt","desc").limit(200).get(),
-      CLOUD.db.collection("posts").orderBy("createdAt","desc").limit(200).get(),
-      CLOUD.db.collection("stories").orderBy("createdAt","desc").limit(200).get()
+      CLOUD.sb.from("questions").select("data").order("created_at",{ascending:false}).limit(200),
+      CLOUD.sb.from("posts").select("data").order("created_at",{ascending:false}).limit(200),
+      CLOUD.sb.from("stories").select("data").order("created_at",{ascending:false}).limit(200)
     ]);
-    DB.questions=q.docs.map(d=>d.data()); DB.posts=p.docs.map(d=>d.data()); DB.stories=s.docs.map(d=>d.data());
+    DB.questions=_rows(q); DB.posts=_rows(p); DB.stories=_rows(s);
     prefetchAuthors(DB.questions); prefetchAuthors(DB.posts);
     saveDB(); renderAdmin("mod"); toast("已加载 ✅","","");
   }catch(e){ logEvent("error","adminLoad: "+e.message); toast("加载失败","见运行日志",""); }
@@ -2386,15 +2355,16 @@ function boot(){
   if(DB.devLog) DB.devLog.forEach(l=>DEV_LOG.push(l));
   logEvent("info","App 启动");
   if(cloudInit()){
-    logEvent("info","云端共享社区已启用");
+    logEvent("info","云端共享社区已启用（Supabase）");
     let inited=false;
-    CLOUD.auth.onAuthStateChanged(async function(user){
+    CLOUD.sb.auth.onAuthStateChange(async function(event, session){
+      const user = session && session.user;
       if(user){
-        DB.currentUserId=user.uid; cloudStart();
+        DB.currentUserId=user.id; cloudStart();
         if(CLOUD.authBusy){ inited=true; return; }   // 注册/登录流程自行导航
         if(checkAdminHash()){ openAdminGate(); inited=true; return; }
         let prof=null;
-        try{ const d=await CLOUD.db.collection("users").doc(user.uid).get(); if(d.exists){ upsertUser(d.data()); prof=d.data(); } }catch(e){ logEvent("error","boot user: "+e.message); }
+        try{ const r=await CLOUD.sb.from("users").select("data").eq("id",user.id).maybeSingle(); if(r.data&&r.data.data){ upsertUser(r.data.data); prof=r.data.data; } }catch(e){ logEvent("error","boot user: "+e.message); }
         if(prof && prof.nick){ go("home"); navTo("home"); }
         else { startProfile(); }   // 已登录但档案没填完 → 去填档案
       } else {
