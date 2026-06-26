@@ -2307,7 +2307,13 @@ function renderAware(){
   });
   body.innerHTML=html;
 }
-function touchStory(id){ const s=DB.stories.find(x=>x.id===id); if(s.touches.includes(DB.currentUserId)){ toast("妳已经看见过她了 🤍","",""); return;} s.touches.push(DB.currentUserId); saveDB(); CW("stories",s); renderAware(); toast("妳看见了她 🤍","这份看见，本身就有力量",""); }
+function touchStory(id){
+  const s=DB.stories.find(x=>x.id===id); if(!s) return;
+  if((s.touches||[]).includes(DB.currentUserId)){ toast("妳已经看见过她了 🤍","",""); return; }
+  s.touches=s.touches||[]; s.touches.push(DB.currentUserId);
+  if(CLOUD.enabled) cwArrAdd("stories",id,"touches",DB.currentUserId); else CW("stories",s);   // 原子更新，避免点完闪一下消失
+  saveDB(); renderAware(); toast("妳看见了她 🤍","这份看见，本身就有力量","");
+}
 function openStoryCompose(){
   openSheet(`<h3>留下妳的人生故事 ✨</h3><p class="field-hint">可以匿名或实名，发布后永久留存</p>
     <textarea id="storyText" style="min-height:140px;" placeholder="写下妳想被看见的那段经历…"></textarea>
@@ -2328,6 +2334,8 @@ function renderMe(){
   if(!u){ document.getElementById("meBody").innerHTML='<div class="empty">资料同步中…🌸<br><br><button class="btn" onclick="fetchMe&&fetchMe();renderMe()">🔄 重试加载</button><br><br><span class="muted" style="font-size:12px;">若一直转圈，多半是后端区域离国内太远，见下方说明</span></div>'; return; }
   const myQ=DB.questions.filter(q=>q.authorId===u.id);
   const myP=DB.posts.filter(p=>p.authorId===u.id);
+  const myS=DB.stories.filter(s=>s.authorId===u.id);
+  const seenGot=myS.reduce((s,x)=>s+((x.touches&&x.touches.length)||0),0);
   const likesGot=myP.reduce((s,p)=>s+((p.likes&&p.likes.length)||0),0);
   const touchesGot=notesReceived().filter(n=>n.type==="touch").length;
   const unread=myUnreadNotes().length;
@@ -2355,6 +2363,7 @@ function renderMe(){
       <div class="menu-item" onclick="startEditProfile()">📋 我的档案<span>编辑 ›</span></div>
       <div class="menu-item" onclick="showMyQuestions()">💭 我发出的问题<span>${myQ.length} ›</span></div>
       <div class="menu-item" onclick="showMyPosts()">🎉 我的帖子<span>${myP.length} ›</span></div>
+      <div class="menu-item" onclick="showMyStories()">✨ 我的她意识故事<span>${myS.length} 篇 · 被看见 ${seenGot} ›</span></div>
       <div class="menu-item" onclick="showCompanions()">🤝 陪伴关系<span>${companions.length} ›</span></div>
       ${grad.length?`<div class="menu-item" style="background:linear-gradient(135deg,#FCEFE3,#FBE7EC);">🎓 她陪我走过<span>${grad.join("、")}</span></div>`:""}
       <div class="menu-item" onclick="changeBg()">🖼️ 更换背景图<span>›</span></div>
@@ -2434,7 +2443,16 @@ async function viewUser(id){
 }
 function showMyPosts(){
   const myP=DB.posts.filter(p=>p.authorId===DB.currentUserId);
-  openSheet(`<h3>我的帖子 🎉</h3>${myP.length?myP.map(p=>`<div class="card" style="margin:10px 0;">${p.text}<div class="li-sub" style="margin-top:6px;">❤️ ${p.likes.length} · 💬 ${p.comments.length}</div></div>`).join(""):'<p class="empty">还没有发帖</p>'}`);
+  openSheet(`<h3>我的帖子 🎉</h3>${myP.length?myP.map(p=>`<div class="card" style="margin:10px 0;">${escapeHtml(p.text)}<div class="li-sub" style="margin-top:6px;">❤️ ${(p.likes||[]).length} · 💬 ${(p.comments||[]).length}</div></div>`).join(""):'<p class="empty">还没有发帖</p>'}`);
+}
+function showMyStories(){
+  const myS=DB.stories.filter(s=>s.authorId===DB.currentUserId).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  const total=myS.reduce((s,x)=>s+((x.touches&&x.touches.length)||0),0);
+  openSheet(`<h3>我的她意识故事 ✨</h3><p class="field-hint">共 ${myS.length} 篇 · 累计被看见 ${total} 次 🤍</p>
+    ${myS.length?myS.map(s=>`<div class="card" style="margin:10px 0;">
+      <div class="li-sub">${s.anon?"匿名发布":("✍️ "+(s.name||""))} · ${timeAgo(s.createdAt)}</div>
+      <div class="story-body" style="margin-top:6px;font-size:14px;">${escapeHtml(s.content)}</div>
+      <div class="li-sub" style="margin-top:8px;">🤍 ${(s.touches||[]).length} 人看见</div></div>`).join(""):'<p class="empty">妳还没有在她意识留下故事<br>每一个故事都值得被看见 🌸</p>'}`);
 }
 function showCompanions(){
   const u=me();
