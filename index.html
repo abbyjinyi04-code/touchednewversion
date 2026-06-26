@@ -227,7 +227,8 @@ label{display:block;font-size:14px;font-weight:600;margin:16px 0 8px;}
 /* ============ 列表项 ============ */
 .list-item{display:flex;gap:12px;align-items:center;background:#fff;border:1.5px solid var(--line);border-radius:18px;padding:14px;margin:10px 0;cursor:pointer;box-shadow:var(--shadow-sm);transition:transform .12s;}
 .list-item:active{transform:scale(.985);}
-.avatar{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--rose-soft),var(--lav));display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.avatar{width:46px;height:46px;border-radius:50%;background:linear-gradient(135deg,var(--rose-soft),var(--lav));display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;overflow:hidden;}
+.avatar img{width:100%;height:100%;object-fit:cover;display:block;}
 .li-main{flex:1;min-width:0;}
 .li-title{font-weight:700;font-size:15px;}
 .li-sub{font-size:12.5px;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -1155,7 +1156,7 @@ function renderParty(){
     const a=userById(p.authorId)||{nick:"姐妹",emoji:"🌸"};
     const liked=p.likes.includes(DB.currentUserId), saved=p.saved.includes(DB.currentUserId);
     html+=`<div class="post">
-      <div class="post-head"><div class="avatar" style="width:38px;height:38px;font-size:18px;">${a.emoji}</div>
+      <div class="post-head"><div class="avatar" style="width:38px;height:38px;font-size:18px;">${avInner(a)}</div>
         <div><div class="li-title">${a.nick}</div><div class="li-sub">${a.region||a.country||""}</div></div></div>
       <div>${p.text}</div>
       ${p.image?`<img class="post-img" src="${p.image}">`:""}
@@ -1180,21 +1181,57 @@ function sendComment(id){
   const p=DB.posts.find(x=>x.id===id); p.comments.push({by:DB.currentUserId,text:v}); saveDB(); CW("posts",p);
   closeSheet(); renderParty(); toast("评论成功 🌸","","");
 }
+/* ---- 真实图片：从相册选择 → 浏览器内压缩 → 存为 data URL ---- */
+function pickImage(maxDim, maxChars, cb){
+  const inp=document.createElement("input");
+  inp.type="file"; inp.accept="image/*";
+  inp.onchange=()=>{
+    const f=inp.files&&inp.files[0]; if(!f) return;
+    if(!/^image\//.test(f.type)){ toast("请选择图片文件 🌸","",""); return; }
+    const r=new FileReader();
+    r.onload=()=>compressDataURL(r.result, maxDim, maxChars, cb);
+    r.onerror=()=>toast("读取失败 🌸","换一张试试","");
+    r.readAsDataURL(f);
+  };
+  inp.click();
+}
+function compressDataURL(dataURL, maxDim, maxChars, cb){
+  const img=new Image();
+  img.onload=()=>{
+    let w=img.width, h=img.height;
+    if(w>h && w>maxDim){ h=Math.round(h*maxDim/w); w=maxDim; }
+    else if(h>=w && h>maxDim){ w=Math.round(w*maxDim/h); h=maxDim; }
+    const c=document.createElement("canvas"); c.width=w; c.height=h;
+    const ctx=c.getContext("2d"); ctx.drawImage(img,0,0,w,h);
+    let q=0.82, out=c.toDataURL("image/jpeg",q);
+    while(out.length>maxChars && q>0.32){ q-=0.1; out=c.toDataURL("image/jpeg",q); }
+    if(out.length>maxChars){ toast("这张图太大啦 🌸","换一张小一点的试试",""); return; }
+    cb(out);
+  };
+  img.onerror=()=>toast("图片解析失败 🌸","换一张试试","");
+  img.src=dataURL;
+}
+
+let composeImg=null;
 function openComposePost(){
+  composeImg=null;
   openSheet(`<h3>发布动态 🎉</h3><textarea id="postText" placeholder="分享此刻的心情或生活…"></textarea>
-    <div class="field-hint">（演示版图片以表情占位）</div>
-    <label style="display:flex;align-items:center;gap:8px;font-weight:400;"><input type="checkbox" id="postImg" style="width:auto;"> 配一张「图片」🖼️</label>
-    <button class="btn block" style="margin-top:12px;" onclick="publishPost()">发布</button>`);
+    <div id="composePreview"></div>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="pickPostImage()">📷 从相册选择图片</button>
+    <button class="btn block" style="margin-top:10px;" onclick="publishPost()">发布</button>`);
 }
+function pickPostImage(){
+  pickImage(1080, 680000, (data)=>{ composeImg=data; const pv=document.getElementById("composePreview");
+    if(pv) pv.innerHTML=`<div style="position:relative;margin-top:10px;"><img class="post-img" src="${data}" style="margin:0;"><span onclick="removePostImage()" style="position:absolute;top:8px;right:8px;background:rgba(61,43,53,.6);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;">✕</span></div>`;
+  });
+}
+function removePostImage(){ composeImg=null; const pv=document.getElementById("composePreview"); if(pv) pv.innerHTML=""; }
 function publishPost(){
-  const t=document.getElementById("postText").value.trim(); if(!t){ toast("写点什么再发吧🌷","",""); return; }
-  const img=document.getElementById("postImg").checked ? imgPlaceholder() : null;
-  const post={id:uid("p"),authorId:DB.currentUserId,text:t,image:img,likes:[],comments:[],saved:[],createdAt:now()};
-  DB.posts.unshift(post); saveDB(); CW("posts",post);
+  const t=document.getElementById("postText").value.trim();
+  if(!t && !composeImg){ toast("写点什么或配张图再发吧🌷","",""); return; }
+  const post={id:uid("p"),authorId:DB.currentUserId,text:t,image:composeImg||null,likes:[],comments:[],saved:[],createdAt:now()};
+  DB.posts.unshift(post); saveDB(); CW("posts",post); composeImg=null;
   closeSheet(); renderParty(); toast("发布成功 🎉","妳的小世界又热闹了一点","");
-}
-function imgPlaceholder(){
-  return "data:image/svg+xml;utf8,"+encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='400' height='220'><rect width='400' height='220' fill='%23FBE7EC'/><text x='200' y='120' font-size='48' text-anchor='middle'>🌸</text></svg>`);
 }
 
 /* ========== 7. 发问流程（五步） ========== */
@@ -1319,7 +1356,7 @@ function runMatch(q){
   q.matchedTo=a.id; saveDB();
   go("home"); renderHome();
   openSheet(`<div class="center">
-    <div class="avatar" style="margin:0 auto 10px;width:64px;height:64px;font-size:30px;">${a.emoji}</div>
+    <div class="avatar" style="margin:0 auto 10px;width:64px;height:64px;font-size:30px;">${avInner(a)}</div>
     <h3>为妳匹配到一位同频姐妹 ✨</h3>
     <div class="li-title">${a.nick} · ${a.age}岁 · ${a.region||a.country}</div>
     <p class="muted" style="font-size:13px;">${a.sign||""}</p>
@@ -1715,7 +1752,7 @@ function relItem(r, showManage){
   const right = r.status==="linked"? "第"+days+"天" : (r.status==="trial"?"试聊中":"闲聊");
   const onClick = showManage ? `openRelManage('${r.id}')` : `openChat('${r.id}')`;
   return `<div class="list-item" onclick="${onClick}">
-    <div class="avatar">${o.emoji}</div>
+    <div class="avatar">${avInner(o)}</div>
     <div class="li-main"><div class="li-title">${o.nick} <span class="rel-tag">${relShortTag(r)}</span></div>
     <div class="li-sub">${lastLine(r)}</div></div>
     <div style="text-align:right;"><div class="li-sub">${right}</div>${showManage?'<div class="li-sub" style="color:var(--rose);">🏡 小屋</div>':'<div class="li-sub" style="color:var(--rose);">💬 聊天</div>'}</div>
@@ -1762,7 +1799,7 @@ function renderRelManage(){
   const heroBg = r.type==="mentorship"?"linear-gradient(135deg,#FCEFE3,#FBE7EC)":r.type==="buddy"?"linear-gradient(135deg,#EAF3EC,#FBE7EC)":r.type==="company"?"linear-gradient(135deg,#F0E6F5,#FBE7EC)":"linear-gradient(135deg,#FBE7EC,#F3E9F5)";
   const days=daysSince(r.confirmedAt||r.createdAt);
   let html=`<div class="rm-hero" style="background:${heroBg}">
-    <div class="avatar">${o.emoji}</div>
+    <div class="avatar">${avInner(o)}</div>
     <div class="li-title" style="font-size:17px;">${o.nick}</div>
     <div class="rel-big">${relShortTag(r)} · 已建立 ${days} 天</div>
   </div>`;
@@ -1817,7 +1854,7 @@ function openChat(relId){
   activeRel=DB.relationships.find(r=>r.id===relId);
   const o=relName(activeRel);
   go("chat");
-  document.getElementById("chatAvatar").textContent=o.emoji;
+  document.getElementById("chatAvatar").innerHTML=avInner(o);
   document.getElementById("chatName").textContent=o.nick;
   document.getElementById("chatRel").textContent=relTypeLabel(activeRel)+(activeRel.paused?" · 已暂停":"");
   renderChatExtras();
@@ -2060,7 +2097,7 @@ function renderMe(){
   document.getElementById("meBody").innerHTML=`
     <div class="profile-bg" id="profBgImg" style="${u.bg?`background:url(${u.bg}) center/cover`:""}"></div>
     <div class="profile-card">
-      <div class="avatar" onclick="changeAvatar()" style="cursor:pointer;">${u.emoji}</div>
+      <div class="avatar" onclick="changeAvatar()" style="cursor:pointer;">${avInner(u)}</div>
       <div class="li-title" style="font-size:18px;">${u.nick}</div>
       <div class="li-sub">ID: ${u.id}</div>
       <div class="muted" style="font-size:13px;margin-top:6px;" onclick="editSign()" style="cursor:pointer;">${u.sign||"✏️ 写一句个人签名…"}</div>
@@ -2085,9 +2122,21 @@ function renderMe(){
 }
 function changeAvatar(){
   const opts=["🌷","🌸","🌹","🌻","🌼","🪷","🐰","🌙","🍃","🦋","⭐","☕"];
-  openSheet(`<h3>选个头像 🌸</h3><div class="emoji-grid" style="margin-top:10px;">${opts.map(o=>`<span class="bubble" onclick="setAvatar('${o}')">${o}</span>`).join("")}</div>`);
+  const u=me();
+  openSheet(`<h3>换头像 🌸</h3>
+    ${u&&u.avatarImg?`<div class="center"><div class="avatar" style="width:84px;height:84px;margin:4px auto 10px;">${avInner(u)}</div></div>`:""}
+    <button class="btn ghost block" onclick="pickAvatarImage()">📷 从相册选择照片</button>
+    ${u&&u.avatarImg?`<button class="btn ghost block" style="margin-top:8px;" onclick="clearAvatarImage()">改回用 emoji 头像</button>`:""}
+    <div class="section-title">或选一个 emoji</div>
+    <div class="emoji-grid">${opts.map(o=>`<span class="bubble" onclick="setAvatar('${o}')">${o}</span>`).join("")}</div>`);
 }
-function setAvatar(e){ me().emoji=e; saveDB(); CWuser(me()); closeSheet(); renderMe(); }
+function pickAvatarImage(){
+  pickImage(256, 140000, (data)=>{ const u=me(); u.avatarImg=data; saveDB(); CWuser(u); closeSheet(); renderMe(); toast("头像已更新 🌸","",""); });
+}
+function clearAvatarImage(){ const u=me(); u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
+function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
+/* 头像内容：有照片显示照片，否则显示 emoji */
+function avInner(u){ return (u && u.avatarImg) ? `<img src="${u.avatarImg}" alt="">` : (u && u.emoji || "🌸"); }
 function changeBg(){
   const colors=["linear-gradient(135deg,#C9A8D4,#F6C9D4,#F2C4A0)","linear-gradient(135deg,#F6C9D4,#FBE7EC)","linear-gradient(135deg,#C9A8D4,#EAD9F0)","linear-gradient(135deg,#F2C4A0,#FCEFE3)"];
   openSheet(`<h3>更换背景 🖼️</h3><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">${colors.map(c=>`<div style="height:70px;border-radius:14px;background:${c};cursor:pointer;" onclick="setBg('${c}')"></div>`).join("")}</div>`);
@@ -2116,7 +2165,7 @@ function showCompanions(){
   const caring=rels.filter(r=> r.type==="mentorship"? r.aId===u.id : true); // 简化：mentorship中aId为mentee
   openSheet(`<h3>陪伴关系 🤝</h3>
     <div class="section-title">正在陪伴我的姐妹 / 我正在陪伴的姐妹</div>
-    ${rels.length?rels.map(r=>{const o=relName(r);return `<div class="list-item" onclick="closeSheet();openChat('${r.id}')"><div class="avatar">${o.emoji}</div><div class="li-main"><div class="li-title">${o.nick} <span class="rel-tag">${relTypeLabel(r)}</span></div><div class="li-sub">已建立 ${daysSince(r.confirmedAt||r.createdAt)} 天</div></div></div>`}).join(""):'<p class="empty">还没有陪伴关系</p>'}`);
+    ${rels.length?rels.map(r=>{const o=relName(r);return `<div class="list-item" onclick="closeSheet();openChat('${r.id}')"><div class="avatar">${avInner(o)}</div><div class="li-main"><div class="li-title">${o.nick} <span class="rel-tag">${relTypeLabel(r)}</span></div><div class="li-sub">已建立 ${daysSince(r.confirmedAt||r.createdAt)} 天</div></div></div>`}).join(""):'<p class="empty">还没有陪伴关系</p>'}`);
 }
 function startEditProfile(){ syncProfileToDraft(); profStepIdx=0; go("profile"); renderProfStep(); }
 function syncProfileToDraft(){ const u=me(); profDraft={nick:u.nick,age:u.age,country:u.country,region:u.region,status:u.status,phase:u.phase,needs:[...(u.needs||[])],purpose:u.purpose,time:u.time,hobbies:[...(u.hobbies||[])],mbti:u.mbti,skills:[...(u.skills||[])],traits:[...(u.traits||[])],exp:[...(u.exp||[])]}; }
