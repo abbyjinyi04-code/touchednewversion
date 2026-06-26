@@ -344,36 +344,21 @@ hr.soft{border:none;border-top:1px dashed var(--line);margin:16px 0;}
     </div>
   </section>
 
-  <!-- 2. 注册页 -->
+  <!-- 2. 手机验证码登录 / 注册 -->
   <section id="register" class="screen">
     <div class="wrap">
-      <h1>创建妳的账号 🌷</h1>
-      <p class="muted">用手机号注册，开启妳的她触之旅</p>
+      <h1>手机号登录 🌷</h1>
+      <p class="muted">收一条验证码即可登录或注册<br>同一手机号永远是同一个账号，换设备/清缓存也找得回数据</p>
       <label>手机号</label>
-      <input id="regPhone" type="tel" inputmode="numeric" placeholder="请输入手机号" maxlength="11">
-      <label>设置密码</label>
-      <input id="regPwd" type="password" placeholder="至少6位">
-      <label>确认密码</label>
-      <input id="regPwd2" type="password" placeholder="再次输入密码">
-      <div class="field-hint" id="regHint"></div>
-      <button class="btn block" style="margin-top:24px;" onclick="doRegister()">注册并继续 →</button>
-      <p class="center" style="margin-top:16px;"><a class="link" onclick="go('login')">已有账号？登录 →</a></p>
-      <p class="center" style="margin-top:6px;"><a class="link" onclick="doLoginDemo()">先用演示账号逛逛</a></p>
-    </div>
-  </section>
-
-  <!-- 2b. 登录页 -->
-  <section id="login" class="screen">
-    <div class="wrap">
-      <h1>欢迎回来 🌷</h1>
-      <p class="muted">用妳注册时的手机号和密码登录，数据会自动同步</p>
-      <label>手机号</label>
-      <input id="loginPhone" type="tel" inputmode="numeric" placeholder="请输入手机号" maxlength="11">
-      <label>密码</label>
-      <input id="loginPwd" type="password" placeholder="请输入密码">
-      <div class="field-hint" id="loginHint"></div>
-      <button class="btn block" style="margin-top:24px;" onclick="doLogin()">登录 →</button>
-      <p class="center" style="margin-top:16px;"><a class="link" onclick="go('register')">还没有账号？去注册</a></p>
+      <input id="otpPhone" type="tel" inputmode="numeric" placeholder="请输入11位手机号" maxlength="11">
+      <div id="otpStep2" style="display:none;">
+        <label>短信验证码</label>
+        <input id="otpCode" type="tel" inputmode="numeric" placeholder="请输入收到的验证码" maxlength="6">
+      </div>
+      <div class="field-hint" id="otpHint"></div>
+      <button class="btn block" id="otpSendBtn" style="margin-top:20px;" onclick="sendOtp()">发送验证码</button>
+      <button class="btn block" id="otpLoginBtn" style="margin-top:10px;display:none;" onclick="verifyOtpCode()">登录 / 注册 →</button>
+      <p class="center" style="margin-top:16px;"><a class="link" onclick="doLoginDemo()">先用演示账号逛逛（仅本机预览）</a></p>
     </div>
   </section>
 
@@ -720,6 +705,15 @@ function CWdel(coll, id){
   if(!CLOUD.enabled) return;
   try{ CLOUD.db.collection(coll).doc(id).remove().catch(e=>logEvent("error","CWdel "+coll+": "+(e.message||e))); }catch(e){ logEvent("error","CWdel: "+(e.message||e)); }
 }
+/* 数组原子增删（避免整文档覆盖导致并发丢失 / 点完闪一下消失） */
+function cwArrAdd(coll, id, field, item){
+  if(!CLOUD.enabled) return;
+  try{ const u={}; u[field]=CLOUD.cmd.push([item]); CLOUD.db.collection(coll).doc(id).update(u).catch(e=>logEvent("error","arrAdd "+coll+":"+(e.message||e))); }catch(e){ logEvent("error","arrAdd:"+(e.message||e)); }
+}
+function cwArrPull(coll, id, field, value){
+  if(!CLOUD.enabled) return;
+  try{ const u={}; u[field]=CLOUD.cmd.pull(value); CLOUD.db.collection(coll).doc(id).update(u).catch(e=>logEvent("error","arrPull "+coll+":"+(e.message||e))); }catch(e){ logEvent("error","arrPull:"+(e.message||e)); }
+}
 function CWmeta(){}   // 管理员口令仅存本地，不上云
 /* 用户缓存：按需懒加载她人公开档案 */
 const _userFetching={};
@@ -743,21 +737,54 @@ async function fetchStories(){ try{ const r=await CLOUD.db.collection("stories")
 async function fetchRelationships(){ const uid=DB.currentUserId; try{ const r=await CLOUD.db.collection("relationships").where(CLOUD.cmd.or([{aId:uid},{bId:uid}])).limit(100).get(); DB.relationships=r.data||[]; DB.chats=DB.chats||{}; DB.relationships.forEach(rel=>{ DB.chats[rel.id]=rel.msgs||[]; ensureUserLoaded(rel.aId===uid?rel.bId:rel.aId); }); try{saveDB();}catch(e){} rerenderCurrent(); }catch(e){ logEvent("error","取关系失败:"+(e.message||e)); } }
 async function fetchMe(){ const uid=DB.currentUserId; const t0=Date.now(); try{ const r=await CLOUD.db.collection("users").doc(uid).get(); logEvent("info","取个人资料 "+(Date.now()-t0)+"ms"); const u=r.data&&r.data[0]; if(u){ upsertUser(u); try{saveDB();}catch(e){} rerenderCurrent(); } }catch(e){ logEvent("error","取个人资料失败:"+(e.message||e)); } }
 async function fetchPrivate(){ const uid=DB.currentUserId; try{ const r=await CLOUD.db.collection("private").doc(uid).get(); DB.private=(r.data&&r.data[0])||{}; }catch(e){ DB.private=DB.private||{}; } }
+/* ---- 通知（收到的轻触/评论/赞）---- */
+let _prevNoteCount=null;
+async function fetchNotifications(){
+  const me_=DB.currentUserId; if(!CLOUD.enabled) { updateNavBadge(); return; }
+  try{
+    const r=await CLOUD.db.collection("notifications").where(CLOUD.cmd.or([{toUid:me_},{fromUid:me_}])).limit(200).get();
+    DB.notes=(r.data||[]).sort((a,b)=>(b.at||0)-(a.at||0));
+    const recv=DB.notes.filter(n=>n.toUid===me_);
+    if(_prevNoteCount!==null && recv.length>_prevNoteCount){ const l=recv[0]; if(l) toast((l.fromNick||"有人")+" "+noteVerb(l), l.content||l.refText||"", "🔔"); }
+    _prevNoteCount=recv.length;
+    try{saveDB();}catch(e){} updateNavBadge();
+    if(currentScreen==="me") renderMe();
+  }catch(e){ logEvent("error","取通知失败:"+(e.message||e)); }
+}
+function noteVerb(n){ return n.type==="touch"?"轻触了妳 🤍": n.type==="comment"?"评论了妳的帖子 💬": n.type==="like"?"赞了妳的帖子 ❤️":"给妳留言"; }
+function createNote(toUid, type, refId, refText, content){
+  if(!toUid || toUid===DB.currentUserId) return;   // 不给自己发通知
+  const note={ id:uid("n"), toUid, fromUid:DB.currentUserId, fromNick:(me()&&me().nick)||"姐妹", type, refId:refId||"", refText:(refText||"").slice(0,40), content:content||"", at:now(), read:false };
+  DB.notes=DB.notes||[]; DB.notes.unshift(note); if(_prevNoteCount!==null && DB.currentUserId) _prevNoteCount++;
+  CW("notifications", note);
+}
+function notesReceived(){ return (DB.notes||[]).filter(n=>n.toUid===DB.currentUserId); }
+function notesSent(){ return (DB.notes||[]).filter(n=>n.fromUid===DB.currentUserId && n.toUid!==DB.currentUserId); }
+function myUnreadNotes(){ let seen=0; try{ seen=+(localStorage.getItem("touched_notes_seen_"+DB.currentUserId)||0); }catch(e){} return notesReceived().filter(n=>(n.at||0)>seen); }
+function markNotesSeen(){ try{ localStorage.setItem("touched_notes_seen_"+DB.currentUserId, String(now())); }catch(e){} updateNavBadge(); }
+function updateNavBadge(){
+  const item=document.querySelector('.nav-item[data-screen="me"]'); if(!item) return;
+  let b=item.querySelector(".nav-badge"); const n=myUnreadNotes().length;
+  if(n>0){ if(!b){ b=document.createElement("div"); b.className="nav-badge"; item.appendChild(b); } b.textContent=n>99?"99+":n; }
+  else if(b){ b.remove(); }
+}
 
 /* 启动：首次拉取 + 实时监听（watch；任意改动→重新拉取该集合） */
 function cloudStart(){
   if(!CLOUD.enabled || CLOUD.started || !DB.currentUserId) return;
   CLOUD.started = true;
   DB.chats=DB.chats||{};
-  fetchMe(); fetchPrivate(); fetchQuestions(); fetchPosts(); fetchStories(); fetchRelationships();
+  fetchMe(); fetchPrivate(); fetchQuestions(); fetchPosts(); fetchStories(); fetchRelationships(); fetchNotifications();
   const uid=DB.currentUserId;
   startWatch("questions", ()=>CLOUD.db.collection("questions"), fetchQuestions);
   startWatch("posts", ()=>CLOUD.db.collection("posts"), fetchPosts);
   startWatch("stories", ()=>CLOUD.db.collection("stories"), fetchStories);
   startWatch("relationships", ()=>CLOUD.db.collection("relationships").where(CLOUD.cmd.or([{aId:uid},{bId:uid}])), fetchRelationships);
+  startWatch("notifications", ()=>CLOUD.db.collection("notifications").where(CLOUD.cmd.or([{toUid:uid},{fromUid:uid}])), fetchNotifications);
   // 兜底轮询：即使实时监听不生效，也保证别人的内容最多 15 秒内出现
   if(!CLOUD._poll){ CLOUD._poll=setInterval(()=>{
     if(document.hidden) return;
+    fetchNotifications();   // 通知一直轮询，保证红点/提示
     if(currentScreen==="home"){ fetchQuestions(); fetchPosts(); }
     else if(currentScreen==="aware"){ fetchStories(); }
     else if(currentScreen==="touch"||currentScreen==="chat"||currentScreen==="relmgmt"){ fetchRelationships(); }
@@ -975,43 +1002,73 @@ function welcomeExit(){
 function freshProfile(extra){ return Object.assign({ nick:"", age:24, country:"中国", region:"", emoji:"🌸", status:"", phase:"", needs:[], purpose:"", time:"", hobbies:[], mbti:"", skills:[], traits:[], exp:[], sign:"", temp:0, tempWeek:weekKey(), isNew:true, createdAt:now() }, extra||{}); }
 function ensureMyUserObj(){ if(CLOUD.enabled && DB.currentUserId && !me()){ DB.users.push(freshProfile({ id:DB.currentUserId })); } }
 /* 欢迎页「I'm in」：云端=匿名身份已就绪，直接建档；本地=去注册页 */
-function imIn(){
+function imIn(){ go("register"); }   // 进入手机验证码登录页
+
+/* ===== 手机验证码登录（CloudBase signInWithOtp）===== */
+let _otpHandle=null, _otpPhone="", _otpTimer=null;
+async function sendOtp(){
+  const phone=(document.getElementById("otpPhone").value||"").trim();
+  const hint=document.getElementById("otpHint");
+  if(!/^\d{11}$/.test(phone)){ hint.style.color="#D2615E"; hint.textContent="请输入 11 位手机号"; return; }
+  _otpPhone=phone;
   if(CLOUD.enabled){
-    if(!DB.currentUserId){ toast("正在连接云端…稍等一下再点 🌸","",""); return; }
-    ensureMyUserObj(); startProfile();
-  } else { go("register"); }
+    hint.style.color="var(--ink-soft)"; hint.textContent="正在发送验证码…";
+    try{
+      const r=await CLOUD.auth.signInWithOtp({ phone });
+      if(r.error){ hint.style.color="#D2615E"; hint.textContent="发送失败："+(r.error.message||r.error); logEvent("error","OTP发送:"+(r.error.message||r.error)); return; }
+      _otpHandle=r.data;   // 含 verifyOtp 回调
+      otpEnterCodeStep();
+      hint.style.color="var(--ink-soft)"; hint.textContent="验证码已发送到 "+phone+"，请查收短信 🌸";
+    }catch(e){ hint.style.color="#D2615E"; hint.textContent="发送异常："+(e.message||e); logEvent("error","OTP发送异常:"+(e.message||e)); }
+  } else {
+    _otpHandle="LOCAL"; otpEnterCodeStep();
+    hint.style.color="var(--ink-soft)"; hint.textContent="本地预览：随便输 4-6 位数字即可登录";
+  }
 }
-async function doRegister(){
-  // 本地模式专用（云端走匿名登录，不经此页）
-  const phone=document.getElementById("regPhone").value.trim();
-  const p1=document.getElementById("regPwd").value, p2=document.getElementById("regPwd2").value;
-  const hint=document.getElementById("regHint"); hint.style.color="#D2615E";
-  if(CLOUD.enabled){ ensureMyUserObj(); startProfile(); return; }
-  if(!/^\d{6,11}$/.test(phone)){ hint.textContent="请输入有效的手机号"; return; }
-  if(p1.length<6){ hint.textContent="密码至少6位"; return; }
-  if(p1!==p2){ hint.textContent="两次密码不一致"; return; }
-  if(DB.users.some(u=>u.phone===phone)){ hint.textContent="这个手机号已注册过啦，去登录吧～"; return; }
-  const id="u_"+phone.slice(-4)+"_"+Math.random().toString(36).slice(2,5);
-  DB.users.push(freshProfile({ id, phone, pwd:hashPwd(p1) })); DB.currentUserId=id; setSession(id); saveDB();
-  showLoader("正在生成妳的专属账号…", ()=>{ toast("账号创建成功 ✨","妳的ID："+id,"🎀"); startProfile(); });
+function otpEnterCodeStep(){
+  document.getElementById("otpStep2").style.display="block";
+  document.getElementById("otpLoginBtn").style.display="block";
+  const c=document.getElementById("otpCode"); if(c){ c.value=""; setTimeout(()=>c.focus(),60); }
+  const btn=document.getElementById("otpSendBtn"); let n=60; btn.disabled=true; btn.textContent=n+"s 后可重发";
+  clearInterval(_otpTimer);
+  _otpTimer=setInterval(()=>{ n--; if(n<=0){ clearInterval(_otpTimer); btn.disabled=false; btn.textContent="重新发送"; } else btn.textContent=n+"s 后可重发"; },1000);
 }
-async function doLogin(){
-  if(CLOUD.enabled){ go("home"); navTo("home"); return; }
-  const phone=document.getElementById("loginPhone").value.trim();
-  const pwd=document.getElementById("loginPwd").value;
-  const hint=document.getElementById("loginHint"); hint.style.color="#D2615E";
-  if(!/^\d{6,11}$/.test(phone)){ hint.textContent="请输入有效的手机号"; return; }
-  if(!pwd){ hint.textContent="请输入密码"; return; }
-  const user=DB.users.find(u=>u.phone===phone)||null;
-  if(!user){ hint.textContent="没有找到这个账号，去注册一个吧～"; return; }
-  if(user.pwd!==hashPwd(pwd) && user.pwd!==pwd){ hint.textContent="密码不正确"; return; }
-  DB.currentUserId=user.id; setSession(user.id); DB.tutorialDone=true; saveDB();
-  showLoader("登录中…", ()=>{ go("home"); navTo("home"); toast("欢迎回来，"+(user.nick||"女孩")+" 🌷","",""); });
+async function verifyOtpCode(){
+  const code=(document.getElementById("otpCode").value||"").trim();
+  const hint=document.getElementById("otpHint"); hint.style.color="#D2615E";
+  if(!/^\d{4,6}$/.test(code)){ hint.textContent="请输入收到的验证码"; return; }
+  if(CLOUD.enabled){
+    if(!_otpHandle || !_otpHandle.verifyOtp){ hint.textContent="请先点「发送验证码」"; return; }
+    try{
+      const r=await _otpHandle.verifyOtp({ token:code });
+      if(r.error){ hint.textContent="验证码不正确或已过期，重试一下"; logEvent("error","OTP校验:"+(r.error.message||r.error)); return; }
+      const u=r.data&&r.data.user; if(!u){ hint.textContent="登录异常，请重试"; return; }
+      clearInterval(_otpTimer);
+      DB.currentUserId=u.id; saveDB(); cloudStart();
+      afterLogin(u.id);
+    }catch(e){ hint.textContent="验证异常："+(e.message||e); logEvent("error","OTP校验异常:"+(e.message||e)); }
+  } else {
+    // 本地预览：手机号映射本地账号
+    let u=DB.users.find(x=>x.phone===_otpPhone);
+    if(!u){ u=freshProfile({ id:"u_"+_otpPhone.slice(-4)+"_"+Math.random().toString(36).slice(2,5), phone:_otpPhone }); DB.users.push(u); }
+    clearInterval(_otpTimer);
+    DB.currentUserId=u.id; setSession(u.id); saveDB();
+    afterLogin(u.id);
+  }
+}
+function afterLogin(uid){
+  showLoader("登录中…", async ()=>{
+    let prof=me();
+    if(CLOUD.enabled){ try{ const r=await CLOUD.db.collection("users").doc(uid).get(); const u0=r.data&&r.data[0]; if(u0){ upsertUser(u0); prof=u0; } }catch(e){ logEvent("error","登录取档案:"+(e.message||e)); } }
+    if(prof && prof.nick){ DB.tutorialDone=true; saveDB(); go("home"); navTo("home"); toast("欢迎回来，"+prof.nick+" 🌷","",""); }
+    else { ensureMyUserObj(); startProfile(); }   // 新用户/没填过档案 → 去建档
+  });
 }
 function doLoginDemo(){
-  if(CLOUD.enabled){ go("home"); navTo("home"); return; }
-  DB.currentUserId="u_lin"; const u=me(); if(u){ u.temp=35; u.tempWeek=weekKey(); } DB.tutorialDone=true; setSession("u_lin"); saveDB();
-  showLoader("登录中…", ()=>{ go("home"); navTo("home"); toast("欢迎回来，林一一 🌷（演示账号）","",""); });
+  // 仅本机预览用（云端模式下也允许，但只在本机看，数据不入云）
+  let u=DB.users.find(x=>x.id==="u_lin"); if(!u){ u=freshProfile({id:"u_lin",nick:"林一一",emoji:"🌷",region:"上海",age:24}); DB.users.push(u); }
+  DB.currentUserId="u_lin"; DB.tutorialDone=true; setSession("u_lin"); saveDB();
+  showLoader("登录中…", ()=>{ go("home"); navTo("home"); toast("演示账号 · 仅本机预览 🌷","",""); });
 }
 
 /* ========== 3. 个人档案（三层） ========== */
@@ -1064,7 +1121,7 @@ function renderProfStep(){
     html+=`<label>国家</label><select id="pf_country" onchange="onCountryChange()">${Object.keys(COUNTRIES).map(c=>`<option ${c===profDraft.country?"selected":""}>${c}</option>`).join("")}</select>
       <label>地区/省份</label><select id="pf_region">${COUNTRIES[profDraft.country||"中国"].map(r=>`<option ${r===profDraft.region?"selected":""}>${r}</option>`).join("")}</select>`;
   } else if(s.type==="select"){
-    html+=`<select id="pf_select"><option value="">请选择</option>${s.opts.map(o=>`<option ${o===profDraft[s.key]?"selected":""}>${o}</option>`).join("")}</select>`;
+    html+=`<select id="pf_select" onchange="profDraft['${s.key}']=this.value;updateProfNext()"><option value="">请选择</option>${s.opts.map(o=>`<option ${o===profDraft[s.key]?"selected":""}>${o}</option>`).join("")}</select>`;
   } else if(s.type==="single"||s.type==="multi"){
     const cur=profDraft[s.key];
     html+=`<div class="bubbles" id="pf_bubbles">`;
@@ -1202,17 +1259,19 @@ function renderWorry(){
     body.innerHTML=`<div class="empty">🌿 暂时没有新的烦恼啦<br>不如去发起一个属于妳的问题？<br><br><button class="btn" onclick="startAsk()">＋ 发出我的问题</button></div>`;
     return;
   }
-  const a=userById(q.authorId);
+  const a=userById(q.authorId)||{nick:"姐妹",emoji:"🌸",age:"",country:"",region:""};
   const reg={ice:["ice","🧊 冰川区"],warm:["warm","🌤 微暖区"],hot:["hot","🔥 急热区"]}[q.region];
   body.innerHTML=`
-    <div style="display:flex;justify-content:flex-end;margin-bottom:2px;"><button class="btn sm" onclick="startAsk()">＋ 发问</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+      ${(DB.skipped&&DB.skipped.length)?`<button class="btn ghost sm" onclick="showSkipped()">↩️ 回看跳过 (${DB.skipped.length})</button>`:`<span></span>`}
+      <button class="btn sm" onclick="startAsk()">＋ 发问</button></div>
     <div class="qcard" id="qcard">
       <div>
         <span class="tag ${reg[0]}">${reg[1]}</span>
         <span class="tag dom">🏷️ ${q.domain}</span>
       </div>
       <div class="qcontent">${q.content}</div>
-      <div class="qmeta">${a.emoji} ${a.nick} · ${a.age}岁 · ${a.country}${a.region?(" "+a.region):""}</div>
+      <div class="qmeta" style="cursor:pointer;" onclick="viewUser('${q.authorId}')">${a.emoji} ${a.nick} · ${a.age}岁 · ${a.country}${a.region?(" "+a.region):""}</div>
       <div class="qactions">
         <button class="btn ghost" onclick="skipQuestion('${q.id}')">跳过 →</button>
         <button class="btn lav" onclick="openTouchPanel('${q.id}')">轻触 🤍</button>
@@ -1221,10 +1280,35 @@ function renderWorry(){
     </div>`;
 }
 function skipQuestion(id){
-  DB.seenQuestions.push(id); saveDB();
+  if(!DB.seenQuestions.includes(id)) DB.seenQuestions.push(id);
+  DB.skipped=DB.skipped||[]; if(!DB.skipped.includes(id)) DB.skipped.push(id);   // 记录跳过的，可回看
+  saveDB();
   const c=document.getElementById("qcard");
   if(c){ c.style.transition="transform .35s,opacity .35s"; c.style.transform="translateX(120%) rotate(8deg)"; c.style.opacity="0"; }
   setTimeout(renderWorry,300);
+}
+/* 回看跳过的问题 */
+function showSkipped(){
+  const ids=DB.skipped||[];
+  const list=ids.map(id=>DB.questions.find(q=>q.id===id)).filter(q=>q&&!q.hidden&&q.authorId!==DB.currentUserId);
+  openSheet(`<h3>回看跳过的问题 ↩️</h3><p class="field-hint">跳过的不会永久消失，随时能回来轻触或拉手 🌸</p>
+    ${list.length?list.map(q=>{
+      const a=userById(q.authorId)||{nick:"姐妹"};
+      const reg={ice:"🧊",warm:"🌤",hot:"🔥"}[q.region]||"";
+      return `<div class="card" style="margin:10px 0;">
+        <div class="li-sub">${reg} ${q.domain} · <span style="cursor:pointer;" onclick="viewUser('${q.authorId}')">${a.nick}</span></div>
+        <div style="margin:8px 0;">${escapeHtml(q.content)}</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn lav sm" onclick="closeSheet();openTouchPanel('${q.id}')">轻触 🤍</button>
+          <button class="btn sm" onclick="closeSheet();initiateHand('${q.id}')">拉手 🤝</button>
+          <button class="btn ghost sm" onclick="unskip('${q.id}')">放回烦恼屋</button>
+        </div></div>`;
+    }).join(""):'<p class="empty">还没有跳过的问题</p>'}`);
+}
+function unskip(id){
+  DB.skipped=(DB.skipped||[]).filter(x=>x!==id);
+  DB.seenQuestions=(DB.seenQuestions||[]).filter(x=>x!==id);
+  saveDB(); closeSheet(); toast("已放回烦恼屋 🌿","",""); if(currentScreen==="home"&&homeTab==="worry") renderWorry();
 }
 
 /* ---- 轻触面板 ---- */
@@ -1250,11 +1334,14 @@ function sendTouch(){
   const content=[touchPick,txt].filter(Boolean).join(" ");
   if(!content){ toast("先选一个贴纸或写点话呀 🌸","",""); return; }
   const q=DB.questions.find(x=>x.id===touchTargetQ);
-  q.touches.push({by:DB.currentUserId, content, at:now()});
-  DB.seenQuestions.push(q.id); saveDB(); CW("questions",q);
+  const item={by:DB.currentUserId, at:now()};   // 公开问题上只存"谁触过"用于计数/去重，内容只进通知（仅双方可见）
+  if(!q.touches.some(t=>t.by===DB.currentUserId)){ q.touches.push(item); if(CLOUD.enabled) cwArrAdd("questions",q.id,"touches",item); else CW("questions",q); }
+  if(!DB.seenQuestions.includes(q.id)) DB.seenQuestions.push(q.id);
+  saveDB();
+  createNote(q.authorId, "touch", q.id, q.content, content);   // 给发问者发通知（内容仅双方可见）
   closeSheet();
   addTemp(5,"完成一次轻触");
-  const a=userById(q.authorId);
+  const a=userById(q.authorId)||{nick:"她"};
   toast("轻触已送达 🤍","已悄悄送到 "+a.nick+" 那里","🤍");
   setTimeout(renderWorry,300);
 }
@@ -1269,30 +1356,67 @@ function renderParty(){
     const a=userById(p.authorId)||{nick:"姐妹",emoji:"🌸"};
     const liked=p.likes.includes(DB.currentUserId), saved=p.saved.includes(DB.currentUserId);
     html+=`<div class="post">
-      <div class="post-head"><div class="avatar" style="width:38px;height:38px;font-size:18px;">${avInner(a)}</div>
-        <div><div class="li-title">${a.nick}</div><div class="li-sub">${a.region||a.country||""}</div></div></div>
-      <div>${p.text}</div>
+      <div class="post-head"><div class="avatar" style="width:38px;height:38px;font-size:18px;cursor:pointer;" onclick="viewUser('${p.authorId}')">${avInner(a)}</div>
+        <div><div class="li-title" style="cursor:pointer;" onclick="viewUser('${p.authorId}')">${a.nick}</div><div class="li-sub">${a.region||a.country||""}</div></div></div>
+      <div>${escapeHtml(p.text)}</div>
       ${p.image?`<img class="post-img" src="${p.image}">`:""}
       <div class="post-actions">
         <span class="${liked?"on":""}" onclick="toggleLike('${p.id}')">${liked?"❤️":"🤍"} ${p.likes.length}</span>
         <span onclick="openComments('${p.id}')">💬 ${p.comments.length}</span>
         <span class="${saved?"on":""}" onclick="toggleSave('${p.id}')">${saved?"⭐":"☆"} 收藏</span>
       </div>
-      ${p.comments.filter(c=>!c.hidden).map(c=>{const cu=userById(c.by)||{nick:"姐妹"};return `<div class="comment"><b>${cu.nick}：</b>${c.text}</div>`}).join("")}
+      ${p.comments.filter(c=>!c.hidden).map(c=>commentLine(c)).join("")}
     </div>`;
   });
   body.innerHTML=html;
 }
-function toggleLike(id){ const p=DB.posts.find(x=>x.id===id); const i=p.likes.indexOf(DB.currentUserId); i>=0?p.likes.splice(i,1):p.likes.push(DB.currentUserId); saveDB(); CW("posts",p); renderParty(); }
-function toggleSave(id){ const p=DB.posts.find(x=>x.id===id); const i=p.saved.indexOf(DB.currentUserId); i>=0?p.saved.splice(i,1):p.saved.push(DB.currentUserId); saveDB(); CW("posts",p); toast(i>=0?"已取消收藏":"已收藏 ⭐","",""); renderParty(); }
-function openComments(id){
-  openSheet(`<h3>评论 💬</h3><textarea id="cmtInput" placeholder="温柔地说点什么…"></textarea>
-    <button class="btn block" style="margin-top:10px;" onclick="sendComment('${id}')">发送</button>`);
+function commentLine(c){
+  const nm=c.nick||(userById(c.by)||{}).nick||"姐妹";
+  const rep=c.replyTo?`<span class="muted"> ▸ @${c.replyTo}</span>`:"";
+  return `<div class="comment"><b style="cursor:pointer;" onclick="viewUser('${c.by}')">${nm}</b>${rep}：${escapeHtml(c.text)}</div>`;
 }
+function toggleLike(id){
+  const p=DB.posts.find(x=>x.id===id); if(!p) return;
+  const i=p.likes.indexOf(DB.currentUserId);
+  if(i>=0){ p.likes.splice(i,1); if(CLOUD.enabled) cwArrPull("posts",id,"likes",DB.currentUserId); }
+  else { p.likes.push(DB.currentUserId); if(CLOUD.enabled) cwArrAdd("posts",id,"likes",DB.currentUserId); }
+  saveDB(); if(!CLOUD.enabled) CW("posts",p); renderParty();
+}
+function toggleSave(id){
+  const p=DB.posts.find(x=>x.id===id); if(!p) return;
+  const i=p.saved.indexOf(DB.currentUserId);
+  if(i>=0){ p.saved.splice(i,1); if(CLOUD.enabled) cwArrPull("posts",id,"saved",DB.currentUserId); }
+  else { p.saved.push(DB.currentUserId); if(CLOUD.enabled) cwArrAdd("posts",id,"saved",DB.currentUserId); }
+  saveDB(); if(!CLOUD.enabled) CW("posts",p); toast(i>=0?"已取消收藏":"已收藏 ⭐","",""); renderParty();
+}
+let _cmtReplyTo=null;
+function openComments(id){ _cmtReplyTo=null; renderCommentsSheet(id); }
+function renderCommentsSheet(id){
+  const p=DB.posts.find(x=>x.id===id); if(!p) return;
+  const list=(p.comments||[]).filter(c=>!c.hidden);
+  openSheet(`<h3>评论 💬</h3>
+    <div style="max-height:46vh;overflow-y:auto;margin-bottom:8px;">
+    ${list.length?list.map(c=>{
+        const nm=c.nick||(userById(c.by)||{}).nick||"姐妹";
+        const rep=c.replyTo?`<span class="muted"> ▸ @${c.replyTo}</span>`:"";
+        return `<div class="comment"><b style="cursor:pointer;" onclick="viewUser('${c.by}')">${nm}</b>${rep}：${escapeHtml(c.text)} <span class="link" style="margin-left:6px;" onclick="replyComment('${id}','${(nm).replace(/['\\]/g,"")}')">回复</span></div>`;
+      }).join(""):'<p class="muted" style="font-size:13px;">还没有评论，来抢个沙发～</p>'}
+    </div>
+    <div id="cmtReplyHint" class="field-hint"></div>
+    <textarea id="cmtInput" placeholder="${_cmtReplyTo?('回复 @'+_cmtReplyTo+'…'):'温柔地说点什么…'}"></textarea>
+    <button class="btn block" style="margin-top:10px;" onclick="sendComment('${id}')">发送</button>`);
+  if(_cmtReplyTo){ const h=document.getElementById("cmtReplyHint"); if(h) h.innerHTML="↩️ 正在回复 @"+_cmtReplyTo+" · <span class='link' onclick=\"_cmtReplyTo=null;renderCommentsSheet('"+id+"')\">取消</span>"; }
+}
+function replyComment(id, nick){ _cmtReplyTo=nick; renderCommentsSheet(id); setTimeout(()=>{ const t=document.getElementById("cmtInput"); if(t) t.focus(); },60); }
 function sendComment(id){
   const v=document.getElementById("cmtInput").value.trim(); if(!v) return;
-  const p=DB.posts.find(x=>x.id===id); p.comments.push({by:DB.currentUserId,text:v}); saveDB(); CW("posts",p);
-  closeSheet(); renderParty(); toast("评论成功 🌸","","");
+  const p=DB.posts.find(x=>x.id===id); if(!p) return;
+  const c={ id:uid("c"), by:DB.currentUserId, nick:(me()&&me().nick)||"姐妹", text:v, replyTo:_cmtReplyTo||null, at:now() };
+  p.comments.push(c);
+  if(CLOUD.enabled) cwArrAdd("posts",id,"comments",c); else CW("posts",p);
+  saveDB();
+  createNote(p.authorId, "comment", id, p.text, (c.replyTo?("回复@"+c.replyTo+"："):"")+v);   // 通知发帖者
+  _cmtReplyTo=null; closeSheet(); renderParty(); toast("评论成功 🌸","","");
 }
 /* ---- 真实图片：从相册选择 → 浏览器内压缩 → 存为 data URL ---- */
 function pickImage(maxDim, maxChars, cb){
@@ -1967,8 +2091,8 @@ function openChat(relId){
   activeRel=DB.relationships.find(r=>r.id===relId);
   const o=relName(activeRel);
   go("chat");
-  document.getElementById("chatAvatar").innerHTML=avInner(o);
-  document.getElementById("chatName").textContent=o.nick;
+  const av=document.getElementById("chatAvatar"); av.innerHTML=avInner(o); av.style.cursor="pointer"; av.onclick=()=>viewUser(o.id);
+  const nm=document.getElementById("chatName"); nm.textContent=o.nick; nm.style.cursor="pointer"; nm.onclick=()=>viewUser(o.id);
   document.getElementById("chatRel").textContent=relTypeLabel(activeRel)+(activeRel.paused?" · 已暂停":"");
   renderChatExtras();
   renderMsgs();
@@ -2204,8 +2328,10 @@ function renderMe(){
   if(!u){ document.getElementById("meBody").innerHTML='<div class="empty">资料同步中…🌸<br><br><button class="btn" onclick="fetchMe&&fetchMe();renderMe()">🔄 重试加载</button><br><br><span class="muted" style="font-size:12px;">若一直转圈，多半是后端区域离国内太远，见下方说明</span></div>'; return; }
   const myQ=DB.questions.filter(q=>q.authorId===u.id);
   const myP=DB.posts.filter(p=>p.authorId===u.id);
+  const likesGot=myP.reduce((s,p)=>s+((p.likes&&p.likes.length)||0),0);
+  const touchesGot=notesReceived().filter(n=>n.type==="touch").length;
+  const unread=myUnreadNotes().length;
   const companions=DB.relationships.filter(r=>!r.ended && (r.aId===u.id||r.bId===u.id));
-  const iAmMentor=companions.filter(r=>r.type==="mentorship" && r.bId===u.id);
   const grad=u.graduatedWith||[];
   document.getElementById("meBody").innerHTML=`
     <div class="profile-bg" id="profBgImg" style="${u.bg?`background:url(${u.bg}) center/cover`:""}"></div>
@@ -2213,15 +2339,19 @@ function renderMe(){
       <div class="avatar" onclick="changeAvatar()" style="cursor:pointer;">${avInner(u)}</div>
       <div class="li-title" style="font-size:18px;">${u.nick}</div>
       <div class="li-sub">ID: ${u.id}</div>
-      <div class="muted" style="font-size:13px;margin-top:6px;" onclick="editSign()" style="cursor:pointer;">${u.sign||"✏️ 写一句个人签名…"}</div>
-      <div class="temp-pill">🌡️ 本周温度 ${myTemp()}</div>
+      <div class="muted" style="font-size:13px;margin-top:6px;cursor:pointer;" onclick="editSign()">${u.sign||"✏️ 写一句个人签名…"}</div>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px;">
+        <span class="temp-pill">🌡️ 本周温度 ${myTemp()}</span>
+        <span class="temp-pill" style="background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">❤️ 共获 ${likesGot} 赞</span>
+      </div>
       <div class="stat-row">
-        <div class="stat"><b>${myQ.length}</b><small>我发出的问题</small></div>
+        <div class="stat"><b>${myQ.length}</b><small>我的问题</small></div>
         <div class="stat"><b>${myP.length}</b><small>我的帖子</small></div>
-        <div class="stat"><b>${companions.length}</b><small>进行中链接</small></div>
+        <div class="stat"><b>${touchesGot}</b><small>收到轻触</small></div>
       </div>
     </div>
     <div style="padding:6px 0;">
+      <div class="menu-item" onclick="showNotes()">🔔 我收到的（轻触/评论）<span>${unread?('<span class="rel-tag" style="background:var(--rose);color:#fff;">'+unread+' 新</span> '):''}${notesReceived().length} ›</span></div>
       <div class="menu-item" onclick="startEditProfile()">📋 我的档案<span>编辑 ›</span></div>
       <div class="menu-item" onclick="showMyQuestions()">💭 我发出的问题<span>${myQ.length} ›</span></div>
       <div class="menu-item" onclick="showMyPosts()">🎉 我的帖子<span>${myP.length} ›</span></div>
@@ -2264,9 +2394,43 @@ function showMyQuestions(){
   const myQ=DB.questions.filter(q=>q.authorId===DB.currentUserId);
   openSheet(`<h3>我发出的问题 💭</h3>${myQ.length?myQ.map(q=>{
     const reg={ice:"🧊",warm:"🌤",hot:"🔥"}[q.region];
-    return `<div class="card" style="margin:10px 0;"><div class="li-sub">${reg} ${q.domain} · ${q.touches.length}次轻触</div><div style="margin-top:6px;">${q.content}</div>
-      ${q.touches.length?`<div class="section-title">收到的轻触（仅妳可见）</div>${q.touches.map(t=>{const tu=userById(t.by)||{nick:"姐妹"};return `<div class="comment">🤍 ${tu.nick}：${t.content}</div>`}).join("")}`:""}</div>`;
+    const tn=notesReceived().filter(n=>n.type==="touch"&&n.refId===q.id);
+    return `<div class="card" style="margin:10px 0;"><div class="li-sub">${reg} ${q.domain} · ${(q.touches||[]).length}次轻触</div><div style="margin-top:6px;">${escapeHtml(q.content)}</div>
+      ${tn.length?`<div class="section-title">收到的轻触（仅妳可见）</div>${tn.map(t=>`<div class="comment">🤍 <b style="cursor:pointer;" onclick="viewUser('${t.fromUid}')">${t.fromNick||"姐妹"}</b>：${escapeHtml(t.content||"")}</div>`).join("")}`:""}</div>`;
   }).join(""):'<p class="empty">还没有发出问题</p>'}`);
+}
+/* 我收到的（轻触/评论）通知列表 */
+function showNotes(){
+  markNotesSeen();
+  const recv=notesReceived();
+  openSheet(`<h3>我收到的 🔔</h3><p class="field-hint">别人给妳的轻触、对妳帖子的评论都会出现在这里</p>
+    ${recv.length?recv.map(n=>{
+      const ic=n.type==="touch"?"🤍":n.type==="comment"?"💬":n.type==="like"?"❤️":"🔔";
+      return `<div class="card" style="margin:10px 0;"><div class="li-sub">${ic} <b style="cursor:pointer;" onclick="viewUser('${n.fromUid}')">${n.fromNick||"姐妹"}</b> ${noteVerb(n)} · ${timeAgo(n.at)}</div>
+        ${n.content?`<div style="margin-top:6px;">${escapeHtml(n.content)}</div>`:""}
+        ${n.refText?`<div class="comment" style="margin-top:6px;">关于：${escapeHtml(n.refText)}</div>`:""}</div>`;
+    }).join(""):'<p class="empty">还没有收到轻触或评论<br>多去烦恼屋温暖别人，也会收到回应哦🌸</p>'}`);
+  renderMe();
+}
+/* 点击任意头像/昵称 → 查看她人公开主页 */
+async function viewUser(id){
+  if(!id) return;
+  if(id===DB.currentUserId){ closeSheet(); navTo("me"); return; }
+  if(!userById(id) && CLOUD.enabled){ try{ const r=await CLOUD.db.collection("users").doc(id).get(); const u0=r.data&&r.data[0]; if(u0) upsertUser(u0); }catch(e){} }
+  const u=userById(id)||{nick:"姐妹",emoji:"🌸",id};
+  const herP=DB.posts.filter(p=>p.authorId===id && !p.hidden);
+  const likes=herP.reduce((s,p)=>s+((p.likes&&p.likes.length)||0),0);
+  openSheet(`<div class="center">
+      <div class="avatar" style="width:80px;height:80px;font-size:38px;margin:0 auto 8px;">${avInner(u)}</div>
+      <div class="li-title" style="font-size:18px;">${u.nick||"姐妹"}</div>
+      <div class="li-sub">${[u.age?u.age+"岁":"",u.region||u.country||""].filter(Boolean).join(" · ")||"她触的姐妹"}</div>
+      <p class="muted" style="font-size:13px;margin-top:6px;">${u.sign?escapeHtml(u.sign):""}</p>
+      <span class="temp-pill" style="margin-top:6px;background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">❤️ 帖子共获 ${likes} 赞</span>
+    </div>
+    ${u.status||u.phase?`<div class="bubbles" style="justify-content:center;margin-top:10px;">${u.status?`<span class="bubble">${u.status}</span>`:""}${u.phase?`<span class="bubble lav">${u.phase}</span>`:""}</div>`:""}
+    ${u.hobbies&&u.hobbies.length?`<div class="section-title">爱好</div><div class="bubbles">${u.hobbies.slice(0,12).map(h=>`<span class="bubble">${escapeHtml(h)}</span>`).join("")}</div>`:""}
+    ${u.skills&&u.skills.length?`<div class="section-title">擅长</div><div class="bubbles">${u.skills.slice(0,10).map(h=>`<span class="bubble apri">${escapeHtml(h)}</span>`).join("")}</div>`:""}
+    ${herP.length?`<div class="section-title">她的帖子</div>${herP.slice(0,5).map(p=>`<div class="comment">${escapeHtml((p.text||"").slice(0,60))}${(p.text||"").length>60?"…":""}　❤️${(p.likes||[]).length}</div>`).join("")}`:""}`);
 }
 function showMyPosts(){
   const myP=DB.posts.filter(p=>p.authorId===DB.currentUserId);
@@ -2517,28 +2681,19 @@ function boot(){
   if(cloudInit()){
     logEvent("info","云端共享社区已启用（CloudBase）");
     (async function(){
-      try{
-        let uid=null;
-        try{ const gu=await CLOUD.auth.getUser(); if(gu && gu.data && gu.data.user) uid=gu.data.user.id; }catch(e){}
-        if(!uid){
-          const t0=Date.now(); const r=await CLOUD.auth.signInAnonymously(); logEvent("info","匿名登录 "+(Date.now()-t0)+"ms"+(r&&r.error?(" 错误:"+(r.error.message||r.error)):""));
-          if(r && r.data && r.data.user) uid=r.data.user.id;
-        }
-        DB.currentUserId = uid;
-      }catch(e){ logEvent("error","匿名登录失败:"+(e.message||e)); }
-      if(!DB.currentUserId){
-        const last=(DEV_LOG.filter(l=>l.type==="error").slice(-1)[0]||{}).msg||"网络/安全域名问题";
-        showBanner("⚠️ 云端连接失败（别人看不到妳）：<b>"+escapeHtml(last)+"</b><br>多半是 CloudBase「Web 安全域名」没加对，或地域(region)不一致。");
+      let uid=null;
+      try{ const gu=await CLOUD.auth.getUser(); if(gu && gu.data && gu.data.user) uid=gu.data.user.id; }catch(e){ logEvent("error","读取登录态:"+(e.message||e)); }
+      if(!uid){   // 未登录 → 欢迎页 → I'm in → 手机验证码登录
+        DB.currentUserId=null;
+        if(checkAdminHash()){ openAdminGate(); return; }
         go("welcome"); playWelcome(); return;
       }
-      hideBanner();
-      cloudStart();
+      DB.currentUserId=uid; hideBanner(); cloudStart();
       if(checkAdminHash()){ openAdminGate(); return; }
-      // 判断是否填过档案
       let prof=me();
-      if(!prof){ try{ const r=await CLOUD.db.collection("users").doc(DB.currentUserId).get(); prof=r.data&&r.data[0]; if(prof) upsertUser(prof); }catch(e){ logEvent("error","boot user:"+(e.message||e)); } }
+      if(!prof){ try{ const r=await CLOUD.db.collection("users").doc(uid).get(); prof=r.data&&r.data[0]; if(prof) upsertUser(prof); }catch(e){ logEvent("error","boot user:"+(e.message||e)); } }
       if(prof && prof.nick){ go("home"); navTo("home"); }
-      else { go("welcome"); playWelcome(); }   // 新身份 → 看欢迎页 → I'm in → 建档
+      else { ensureMyUserObj(); startProfile(); }   // 已登录但没填档案 → 去建档
     })();
     return;
   }
