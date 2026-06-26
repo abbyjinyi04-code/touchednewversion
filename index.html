@@ -473,8 +473,8 @@ hr.soft{border:none;border-top:1px dashed var(--line);margin:16px 0;}
 </div>
 
 <!-- 后端 SDK（不填配置则自动本地运行） -->
-<!-- CloudBase SDK（腾讯自家CDN，国内快且稳） -->
-<script src="https://imgcache.qq.com/qcloud/cloudbase-js-sdk/2.15.1/cloudbase.full.js"></script>
+<!-- CloudBase SDK v2（腾讯官方CDN，国内快且稳） -->
+<script src="https://static.cloudbase.net/cloudbase-js-sdk/2.28.6/cloudbase.full.js"></script>
 
 <script>
 /* =========================================================
@@ -487,6 +487,7 @@ hr.soft{border:none;border-top:1px dashed var(--line);margin:16px 0;}
    不填 / 保持 PASTE_ 开头 → App 自动用本地模式运行
    ========================================================= */
 const CLOUDBASE_ENV = "touched-d0gsy9z6ff761f308";
+const CLOUDBASE_REGION = "ap-shanghai";   // 若环境在广州填 ap-guangzhou、新加坡填 ap-singapore（要和环境地域一致）
 </script>
 
 <script>
@@ -521,8 +522,8 @@ function cloudInit(){
   if(!cloudConfigured()) return false;
   if(typeof cloudbase==="undefined" || !cloudbase.init){ logEvent("error","CloudBase SDK 未加载（检查网络/CDN）"); return false; }
   try{
-    CLOUD.app = cloudbase.init({ env:CLOUDBASE_ENV });
-    CLOUD.auth = CLOUD.app.auth({ persistence:"local" });
+    CLOUD.app = cloudbase.init({ env:CLOUDBASE_ENV, region:(typeof CLOUDBASE_REGION!=="undefined"?CLOUDBASE_REGION:"ap-shanghai") });
+    CLOUD.auth = CLOUD.app.auth;   // v2：auth 是属性，不是函数调用
     CLOUD.db = CLOUD.app.database();
     CLOUD.cmd = CLOUD.db.command;
     CLOUD.enabled = true;
@@ -588,6 +589,13 @@ function cloudStart(){
   startWatch("posts", ()=>CLOUD.db.collection("posts"), fetchPosts);
   startWatch("stories", ()=>CLOUD.db.collection("stories"), fetchStories);
   startWatch("relationships", ()=>CLOUD.db.collection("relationships").where(CLOUD.cmd.or([{aId:uid},{bId:uid}])), fetchRelationships);
+  // 兜底轮询：即使实时监听不生效，也保证别人的内容最多 15 秒内出现
+  if(!CLOUD._poll){ CLOUD._poll=setInterval(()=>{
+    if(document.hidden) return;
+    if(currentScreen==="home"){ fetchQuestions(); fetchPosts(); }
+    else if(currentScreen==="aware"){ fetchStories(); }
+    else if(currentScreen==="touch"||currentScreen==="chat"||currentScreen==="relmgmt"){ fetchRelationships(); }
+  }, 15000); }
 }
 let _watchInit={};
 function startWatch(name, queryFn, onChange){
@@ -2333,10 +2341,13 @@ function boot(){
     logEvent("info","云端共享社区已启用（CloudBase）");
     (async function(){
       try{
-        if(!(CLOUD.auth.currentUser && CLOUD.auth.currentUser.uid)){
-          const t0=Date.now(); await CLOUD.auth.signInAnonymously(); logEvent("info","匿名登录 "+(Date.now()-t0)+"ms");
+        let uid=null;
+        try{ const gu=await CLOUD.auth.getUser(); if(gu && gu.data && gu.data.user) uid=gu.data.user.id; }catch(e){}
+        if(!uid){
+          const t0=Date.now(); const r=await CLOUD.auth.signInAnonymously(); logEvent("info","匿名登录 "+(Date.now()-t0)+"ms"+(r&&r.error?(" 错误:"+(r.error.message||r.error)):""));
+          if(r && r.data && r.data.user) uid=r.data.user.id;
         }
-        DB.currentUserId = CLOUD.auth.currentUser && CLOUD.auth.currentUser.uid;
+        DB.currentUserId = uid;
       }catch(e){ logEvent("error","匿名登录失败:"+(e.message||e)); }
       if(!DB.currentUserId){ go("welcome"); playWelcome(); return; }   // 连不上也别卡死
       cloudStart();
