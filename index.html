@@ -315,6 +315,17 @@ hr.soft{border:none;border-top:1px dashed var(--line);margin:16px 0;}
 @media (prefers-reduced-motion: reduce){
   .screen.active,.msg.fresh,.qcard,.card,.func-card .fc-ic,.badge{animation:none !important;}
 }
+/* 多端适配安全：防溢出/长文本/大图撑破界面 */
+html,body{max-width:100%;overflow-x:hidden;}
+img{max-width:100%;height:auto;}
+.qcontent,.story-body,.msg,.comment,.li-sub,.li-title,.post,.rm-goal{overflow-wrap:anywhere;word-break:break-word;}
+textarea,input,select{max-width:100%;}
+.wrap{box-sizing:border-box;}
+@media (max-width:360px){
+  .wrap{padding:18px 14px 28px;} h1{font-size:22px;} h2{font-size:19px;}
+  .bubble{font-size:13px;padding:8px 12px;} .btn{font-size:15px;padding:12px 20px;}
+  .stat b{font-size:16px;} .func-card .fc-ic{font-size:26px;}
+}
 </style>
 </head>
 <body>
@@ -945,6 +956,7 @@ function userById(id){ return DB.users.find(u=>u.id===id); }
 /* ---------- 屏幕导航 ---------- */
 let currentScreen = "welcome";
 function go(id){
+  const bl=document.getElementById("loader"); if(bl && !LOADER_BUSY) bl.classList.remove("show");   // 路由到任意页即隐藏启动加载遮罩（已登录不闪欢迎页）
   const el = document.getElementById(id);
   if(currentScreen!==id){   // 只在真正切换屏幕时播放入场动画，避免同屏重复触发造成闪烁
     document.querySelectorAll(".screen.active").forEach(s=>s.classList.remove("active"));
@@ -977,6 +989,7 @@ function toast(title, body, icon){
 }
 
 /* ---------- 加载小花瓣动画 ---------- */
+let LOADER_BUSY=false;
 function showLoader(text, cb, dur){
   const l = document.getElementById("loader");
   document.getElementById("loaderText").textContent = text || "温柔加载中…";
@@ -989,8 +1002,8 @@ function showLoader(text, cb, dur){
     s.style.animationDelay = (i*0.3)+"s";
     p.appendChild(s);
   }
-  l.classList.add("show");
-  setTimeout(()=>{ l.classList.remove("show"); if(cb) cb(); }, dur||1400);
+  LOADER_BUSY=true; l.classList.add("show");
+  setTimeout(()=>{ LOADER_BUSY=false; l.classList.remove("show"); if(cb) cb(); }, dur||1400);
 }
 
 /* ---------- 温度值 ---------- */
@@ -1235,26 +1248,35 @@ function stepValid(){
 function updateProfNext(){
   const btn=document.getElementById("profNext");
   btn.disabled=!stepValid();
-  btn.textContent = profStepIdx===PROF_STEPS.length-1 ? "完成档案 🌸" : "下一步";
+  btn.textContent = editSingle ? "保存 🌸" : (profStepIdx===PROF_STEPS.length-1 ? "完成档案 🌸" : "下一步");
+  const back=document.getElementById("profBack"); if(back) back.style.display = (editSingle||profStepIdx>0)?"block":"none";
 }
 document.addEventListener("input",e=>{ if(e.target.id==="pf_input") updateProfNext(); });
-function profPrev(){ if(profStepIdx>0){ syncCurrentStep(); profStepIdx--; renderProfStep(); } }
+function profPrev(){ if(editSingle){ editSingle=false; editProfileMenu(); return; } if(profStepIdx>0){ syncCurrentStep(); profStepIdx--; renderProfStep(); } }
 function skipOptional(){ profNext(true); }
+let editSingle=false;
 function profNext(skip){
   if(!skip){ syncCurrentStep(); if(!stepValid()){ updateProfNext(); return; } }
+  if(editSingle){   // 单项编辑：保存这一项就返回档案菜单
+    const u=me(); if(u){ Object.assign(u, profDraft); saveDB(); CWuser(u); }
+    editSingle=false; toast("已保存 🌸","",""); editProfileMenu(); return;
+  }
   if(profStepIdx<PROF_STEPS.length-1){ profStepIdx++; renderProfStep(); }
   else { finishProfile(); }
 }
 function finishProfile(){
-  const u=me();
+  const u=me(); if(!u) return;
+  const firstTime=!u.nick;   // 第一次建档才随机头像；之后编辑不改动头像/背景
   Object.assign(u, profDraft);
   if(!u.nick) u.nick="匿名小花";
-  u.emoji = ["🌷","🌸","🌹","🌻","🌼","🪷","🐰","🌙","🍃"][Math.floor(Math.random()*9)];
-  u.isNew=true; saveDB(); CWuser(u);
-  showLoader("正在为妳点亮她触…", ()=>{
-    go("home"); renderHome();
-    if(!DB.tutorialDone) startTutorial();
-  });
+  if(firstTime && !u.avatarImg) u.emoji = ["🌷","🌸","🌹","🌻","🌼","🪷","🐰","🌙","🍃"][Math.floor(Math.random()*9)];
+  saveDB(); CWuser(u);
+  if(firstTime){
+    u.isNew=true; saveDB();
+    showLoader("正在为妳点亮她触…", ()=>{ go("home"); renderHome(); if(!DB.tutorialDone) startTutorial(); });
+  } else {
+    showLoader("已保存 🌸", ()=>{ go("me"); renderMe(); toast("档案已更新 🌷","",""); });
+  }
 }
 
 /* ========== 4. 新用户引导 Tutorial ========== */
@@ -1387,14 +1409,17 @@ const TOUCH_LINES=["妳已经很棒了，真的。","我也经历过，抱抱妳
 let touchTargetQ=null, touchPick="";
 function openTouchPanel(qid){
   touchTargetQ=qid; touchPick="";
+  const q=DB.questions.find(x=>x.id===qid)||{};
+  const a=userById(q.authorId)||{nick:"姐妹"};
   openSheet(`<h3>给她一点温暖 🤍</h3>
+    <div class="rm-goal" style="margin-bottom:6px;">💭 <b>${a.nick}的烦恼：</b>${escapeHtml((q.content||"").slice(0,120))}${(q.content||"").length>120?"…":""}</div>
     <p class="field-hint">只有发问者本人能看到妳的轻触，发送后才算完成哦</p>
     <div class="section-title">暖心贴纸</div>
     <div class="emoji-grid">${TOUCH_STICKERS.map(s=>`<span class="bubble" onclick="pickTouch(this,'${s}')">${s}</span>`).join("")}</div>
     <div class="section-title">安慰语（点一句直接放入）</div>
     <div class="preset-lines">${TOUCH_LINES.map(s=>`<span class="bubble" onclick="pickTouchLine('${s.replace(/'/g,"\\'")}')">${s}</span>`).join("")}</div>
-    <div class="section-title">或者，自己说点什么（50字内）</div>
-    <textarea id="touchInput" maxlength="50" placeholder="写下妳想对她说的话…"></textarea>
+    <div class="section-title">或者，好好对她说（200字内）</div>
+    <textarea id="touchInput" maxlength="200" style="min-height:90px;" placeholder="写下妳想对她说的话…"></textarea>
     <button class="btn block" style="margin-top:14px;" onclick="sendTouch()">发送轻触 🤍</button>`);
 }
 function pickTouch(el,s){ document.querySelectorAll(".emoji-grid .bubble").forEach(b=>b.classList.remove("on")); el.classList.add("on"); touchPick=s; }
@@ -2040,9 +2065,14 @@ function isMentee(rel){ return rel.menteeId===DB.currentUserId; }
 function isMentor(rel){ return rel.mentorId===DB.currentUserId; }
 function pushMsg(relId, fromId, text, kind){
   if(!DB.chats[relId]) DB.chats[relId]=[];
-  DB.chats[relId].push({id:uid("m"),from:fromId,text,kind:kind||"text",at:now()});
+  const m={id:uid("m"),from:fromId,text,kind:kind||"text",at:now()};
+  DB.chats[relId].push(m);
   const rel=DB.relationships.find(r=>r.id===relId);
-  if(rel){ rel.msgs=DB.chats[relId]; CW("relationships",rel); }
+  if(rel){
+    rel.msgs=DB.chats[relId];
+    // 用「原子追加」写消息，避免两台设备整条覆盖导致对方消息丢失（重登后聊天记录消失的根因）
+    if(CLOUD.enabled) cwArrAdd("relationships", relId, "msgs", m); else CW("relationships",rel);
+  }
   saveDB();
 }
 function pushSys(relId, text){ pushMsg(relId, "sys", text, "sys"); }
@@ -2445,28 +2475,26 @@ function renderMe(){
         <span class="temp-pill" style="background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">❤️ 共获 ${likesGot} 赞</span>
       </div>
       <div class="stat-row">
-        <div class="stat"><b>${myQ.length}</b><small>我的问题</small></div>
-        <div class="stat"><b>${myP.length}</b><small>我的帖子</small></div>
-        <div class="stat"><b>${touchesGot}</b><small>收到轻触</small></div>
+        <div class="stat" style="cursor:pointer;" onclick="showMyQuestions()"><b>${myQ.length}</b><small>我的问题 ›</small></div>
+        <div class="stat" style="cursor:pointer;" onclick="showMyPosts()"><b>${myP.length}</b><small>我的帖子 ›</small></div>
+        <div class="stat" style="cursor:pointer;" onclick="showNotes()"><b>${touchesGot}</b><small>收到轻触 ›</small></div>
       </div>
     </div>
     <div style="padding:6px 0;">
-      <div class="menu-item" onclick="showNotes()">🔔 我收到的（轻触/评论）<span>${unread?('<span class="rel-tag" style="background:var(--rose);color:#fff;">'+unread+' 新</span> '):''}${notesReceived().length} ›</span></div>
-      <div class="menu-item" onclick="startEditProfile()">📋 我的档案<span>编辑 ›</span></div>
-      <div class="menu-item" onclick="showMyQuestions()">💭 我发出的问题<span>${myQ.length} ›</span></div>
+      <div class="menu-item" onclick="showNotes()">🔔 我收到的通知<span>${unread?('<span class="rel-tag" style="background:var(--rose);color:#fff;">'+unread+' 新</span> '):''}${notesReceived().length} ›</span></div>
+      <div class="menu-item" onclick="startEditProfile()">📋 编辑我的档案<span>›</span></div>
       <div class="menu-item" onclick="showBrowsed()">👀 浏览过的烦恼<span>${(DB.browsed||[]).length} ›</span></div>
-      <div class="menu-item" onclick="showMyPosts()">🎉 我的帖子<span>${myP.length} ›</span></div>
       <div class="menu-item" onclick="showMyStories()">✨ 我的她意识故事<span>${myS.length} 篇 · 被看见 ${seenGot} ›</span></div>
       <div class="menu-item" onclick="showCompanions()">🤝 陪伴关系<span>${companions.length} ›</span></div>
       ${grad.length?`<div class="menu-item" style="background:linear-gradient(135deg,#FCEFE3,#FBE7EC);">🎓 她陪我走过<span>${grad.join("、")}</span></div>`:""}
       <div class="menu-item" onclick="changeBg()">🖼️ 更换背景图<span>›</span></div>
       <div class="menu-item" onclick="openAdminGate()" style="opacity:.7;font-size:13px;">🛠️ 开发者入口<span class="muted" style="font-weight:400;">需口令 ›</span></div>
       <div class="menu-item" onclick="logout()" style="color:#D2615E;justify-content:center;">退出登录</div>
-      <p class="field-hint center" style="margin:4px 16px 0;">她触 Touched · 内测版 v0.2</p>
+      <p class="field-hint center" style="margin:4px 16px 0;">她触 Touched · 内测版 v0.3</p>
     </div>`;
 }
 function changeAvatar(){
-  const opts=["🌷","🌸","🌹","🌻","🌼","🪷","🐰","🌙","🍃","🦋","⭐","☕"];
+  const opts=["🌷","🌸","🌹","🌻","🌼","🪷","🌺","💐","🍀","🍃","🌿","🌙","⭐","✨","🌈","☁️","💗","💛","💜","🤍","🐰","🐱","🐶","🦊","🐻","🐼","🐨","🐯","🦋","🐝","🐬","🦢","🕊️","☕","🍵","🧋","🍓","🍑","🍰","🎨","📚","🎧","🎸","✍️"];
   const u=me();
   openSheet(`<h3>换头像 🌸</h3>
     ${u&&u.avatarImg?`<div class="center"><div class="avatar" style="width:84px;height:84px;margin:4px auto 10px;">${avInner(u)}</div></div>`:""}
@@ -2596,7 +2624,29 @@ function showCompanions(){
     <div class="section-title">正在陪伴我的姐妹 / 我正在陪伴的姐妹</div>
     ${rels.length?rels.map(r=>{const o=relName(r);return `<div class="list-item" onclick="closeSheet();openChat('${r.id}')"><div class="avatar">${avInner(o)}</div><div class="li-main"><div class="li-title">${o.nick} <span class="rel-tag">${relTypeLabel(r)}</span></div><div class="li-sub">已建立 ${daysSince(r.confirmedAt||r.createdAt)} 天</div></div></div>`}).join(""):'<p class="empty">还没有陪伴关系</p>'}`);
 }
-function startEditProfile(){ syncProfileToDraft(); profStepIdx=0; go("profile"); renderProfStep(); }
+function startEditProfile(){ editSingle=false; editProfileMenu(); }
+const PROF_FIELDS=[
+  {i:0,key:"nick",label:"昵称",get:u=>u.nick},
+  {i:1,key:"age",label:"年龄",get:u=>u.age+"岁"},
+  {i:2,key:"region",label:"地区",get:u=>[u.country,u.region].filter(Boolean).join(" ")},
+  {i:3,key:"status",label:"当前状态",get:u=>u.status},
+  {i:4,key:"phase",label:"最近处境",get:u=>u.phase},
+  {i:5,key:"needs",label:"需要支持的领域",get:u=>(u.needs||[]).join("、")},
+  {i:6,key:"purpose",label:"来这里的目的",get:u=>u.purpose},
+  {i:7,key:"time",label:"能投入的时间",get:u=>u.time},
+  {i:8,key:"hobbies",label:"爱好",get:u=>(u.hobbies||[]).join("、")},
+  {i:9,key:"mbti",label:"MBTI",get:u=>u.mbti},
+  {i:10,key:"skills",label:"擅长领域",get:u=>(u.skills||[]).join("、")},
+  {i:11,key:"traits",label:"性格关键词",get:u=>(u.traits||[]).join("、")},
+  {i:12,key:"exp",label:"经历过的事",get:u=>(u.exp||[]).join("、")}
+];
+function editProfileMenu(){
+  closeSheet();
+  const u=me()||{};
+  openSheet(`<h3>编辑档案 📋</h3><p class="field-hint">点任意一项，只改那一项，改完即存 🌸</p>
+    ${PROF_FIELDS.map(f=>`<div class="menu-item" style="margin:8px 0;" onclick="editOneField(${f.i})"><span>${f.label}</span><span class="muted" style="font-weight:400;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((f.get(u)||"未填")+"")} ›</span></div>`).join("")}`);
+}
+function editOneField(idx){ closeSheet(); syncProfileToDraft(); editSingle=true; profStepIdx=idx; go("profile"); renderProfStep(); }
 function syncProfileToDraft(){ const u=me(); profDraft={nick:u.nick,age:u.age,country:u.country,region:u.region,status:u.status,phase:u.phase,needs:[...(u.needs||[])],purpose:u.purpose,time:u.time,hobbies:[...(u.hobbies||[])],mbti:u.mbti,skills:[...(u.skills||[])],traits:[...(u.traits||[])],exp:[...(u.exp||[])]}; }
 function logout(){
   openSheet(`<h3 class="center">退出登录？ 🌙</h3><p class="center muted">妳的数据会保留，下次可以再回来。</p>
@@ -2830,6 +2880,8 @@ function boot(){
   loadDB();
   if(DB.devLog) DB.devLog.forEach(l=>DEV_LOG.push(l));
   logEvent("info","App 启动");
+  // 启动时先盖一层加载遮罩，等确定登录状态再路由——已登录直接进首页，不闪欢迎页
+  try{ document.getElementById("welcome").classList.remove("active"); document.getElementById("loader").classList.add("show"); document.getElementById("loaderText").textContent="正在进入她触…🌸"; }catch(e){}
   if(cloudInit()){
     logEvent("info","云端共享社区已启用（CloudBase）");
     (async function(){
