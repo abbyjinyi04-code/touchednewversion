@@ -245,9 +245,10 @@ label{display:block;font-size:14px;font-weight:600;margin:16px 0 8px;}
 .post-imgs.n1 img{max-height:46vh;object-fit:cover;}
 .post-imgs.n2{grid-template-columns:1fr 1fr;}
 .post-imgs.n3{grid-template-columns:1fr 1fr 1fr;}
-.post-imgs.n2 img,.post-imgs.n3 img{aspect-ratio:1/1;}
+.post-imgs.n4{grid-template-columns:1fr 1fr;}
+.post-imgs.n2 img,.post-imgs.n3 img,.post-imgs.n4 img{aspect-ratio:1/1;}
 #composePreview.post-imgs img{aspect-ratio:1/1;}
-#composePreview{grid-template-columns:repeat(3,1fr);}
+#composePreview{grid-template-columns:repeat(4,1fr);}
 .post-actions{display:flex;gap:18px;margin-top:10px;font-size:13.5px;color:var(--ink-soft);}
 .post-actions span{cursor:pointer;}
 .post-actions span.on{color:var(--rose);font-weight:600;}
@@ -713,7 +714,10 @@ function CW(coll, obj){
 function CWuser(u){
   if(!CLOUD.enabled || !u || !u.id) return;
   const pub=plain(u); delete pub.diaries; delete pub.pwd;
-  try{ CLOUD.db.collection("users").doc(u.id).set(pub).catch(e=>logEvent("error","CWuser: "+(e.message||e))); }catch(e){ logEvent("error","CWuser: "+(e.message||e)); }
+  try{ CLOUD.db.collection("users").doc(u.id).set(pub)
+      .then(()=>logEvent("info","档案已同步云端 ✅"))
+      .catch(e=>logEvent("error","档案同步失败(检查 users 集合 write 规则应为 auth.uid != null): "+(e.message||e))); }
+  catch(e){ logEvent("error","CWuser: "+(e.message||e)); }
 }
 /* 私密数据（只有本人可读写，存 private 集合，文档id=自己uid） */
 function CWprivate(patch){
@@ -1134,7 +1138,13 @@ async function verifyOtpCode(){
 function afterLogin(uid){
   showLoader("登录中…", async ()=>{
     let prof=me();
-    if(CLOUD.enabled){ try{ const r=await CLOUD.db.collection("users").doc(uid).get(); const u0=r.data&&r.data[0]; if(u0){ upsertUser(u0); prof=u0; } }catch(e){ logEvent("error","登录取档案:"+(e.message||e)); } }
+    if(CLOUD.enabled){ try{ const r=await CLOUD.db.collection("users").doc(uid).get(); const u0=r.data&&r.data[0]; const local=me();
+        if(u0){
+          // 若本地有更新的编辑（云端写入曾失败/更慢），保留本地并补写云端，避免重登复原
+          if(local && (local.updatedAt||0) > (u0.updatedAt||0)){ CWuser(local); prof=local; logEvent("info","本地档案较新，已保留并补同步云端"); }
+          else { upsertUser(u0); prof=me()||u0; }
+        }
+      }catch(e){ logEvent("error","登录取档案:"+(e.message||e)); } }
     if(prof && prof.nick){ DB.tutorialDone=true; saveDB(); go("home"); navTo("home"); toast("欢迎回来，"+prof.nick+" 🌷","",""); }
     else { ensureMyUserObj(); startProfile(); }   // 新用户/没填过档案 → 去建档
   });
@@ -1269,7 +1279,7 @@ let editSingle=false;
 function profNext(skip){
   if(!skip){ syncCurrentStep(); if(!stepValid()){ updateProfNext(); return; } }
   if(editSingle){   // 单项编辑：保存这一项就回个人主页 + 档案菜单（不进入全流程）
-    const u=me(); if(u){ Object.assign(u, profDraft); saveDB(); CWuser(u); }
+    const u=me(); if(u){ Object.assign(u, profDraft); u.updatedAt=now(); saveDB(); CWuser(u); }
     editSingle=false; navTo("me"); toast("已保存 🌸","",""); editProfileMenu(); return;
   }
   if(profStepIdx<PROF_STEPS.length-1){ profStepIdx++; renderProfStep(); }
@@ -1281,6 +1291,7 @@ function finishProfile(){
   Object.assign(u, profDraft);
   if(!u.nick) u.nick="匿名小花";
   if(firstTime && !u.avatarImg) u.emoji = ["🌷","🌸","🌹","🌻","🌼","🪷","🐰","🌙","🍃"][Math.floor(Math.random()*9)];
+  u.updatedAt=now();
   saveDB(); CWuser(u);
   if(firstTime){
     u.isNew=true; saveDB();
@@ -1549,6 +1560,31 @@ function pickImage(maxDim, maxChars, cb){
   };
   inp.click();
 }
+/* 相册多选：一次选多张，逐张压缩后回调（cb 每压好一张调一次） */
+function pickImagesMulti(maxDim, maxChars, maxCount, cbEach, cbDone){
+  const inp=document.createElement("input");
+  inp.type="file"; inp.accept="image/*"; inp.multiple=true;
+  inp.style.position="fixed"; inp.style.left="-9999px"; inp.style.opacity="0";
+  document.body.appendChild(inp);
+  const cleanup=()=>{ try{ document.body.removeChild(inp); }catch(e){} };
+  inp.onchange=()=>{
+    let files=Array.prototype.slice.call(inp.files||[]);
+    if(!files.length){ cleanup(); return; }
+    if(files.length>maxCount) files=files.slice(0,maxCount);
+    toast("正在处理 "+files.length+" 张图片…🌸","","");
+    let i=0;
+    const nextFile=()=>{
+      if(i>=files.length){ cleanup(); if(cbDone) cbDone(); return; }
+      const f=files[i++];
+      const r=new FileReader();
+      r.onload=()=>{ compressDataURL(r.result, maxDim, maxChars, (out)=>{ if(out) cbEach(out); nextFile(); }); };
+      r.onerror=()=>{ nextFile(); };
+      try{ r.readAsDataURL(f); }catch(e){ nextFile(); }
+    };
+    nextFile();
+  };
+  inp.click();
+}
 function compressDataURL(dataURL, maxDim, maxChars, cb){
   const img=new Image();
   img.onload=()=>{
@@ -1581,17 +1617,22 @@ function openComposePost(){
   composeImgs=[];
   openSheet(`<h3>发布动态 🎉</h3><textarea id="postText" placeholder="分享此刻的心情或生活…"></textarea>
     <div id="composePreview" class="post-imgs" style="margin-top:10px;"></div>
-    <button class="btn ghost block" id="addImgBtn" style="margin-top:10px;" onclick="pickPostImage()">📷 添加图片（最多3张）</button>
+    <button class="btn ghost block" id="addImgBtn" style="margin-top:10px;" onclick="pickPostImage()">📷 添加图片（可多选，最多4张）</button>
     <button class="btn block" style="margin-top:10px;" onclick="publishPost()">发布</button>`);
 }
+const MAX_POST_IMGS=4;
 function renderComposePreview(){
   const pv=document.getElementById("composePreview"); if(!pv) return;
   pv.innerHTML=composeImgs.map((d,i)=>`<div style="position:relative;"><img src="${d}"><span onclick="removePostImage(${i})" style="position:absolute;top:4px;right:4px;background:rgba(61,43,53,.6);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;">✕</span></div>`).join("");
-  const btn=document.getElementById("addImgBtn"); if(btn){ btn.style.display=composeImgs.length>=3?"none":"block"; btn.textContent="📷 再加一张（"+composeImgs.length+"/3）"; }
+  const btn=document.getElementById("addImgBtn"); if(btn){ btn.style.display=composeImgs.length>=MAX_POST_IMGS?"none":"block"; btn.textContent="📷 再加图片（"+composeImgs.length+"/"+MAX_POST_IMGS+"，可多选）"; }
 }
 function pickPostImage(){
-  if(composeImgs.length>=3){ toast("最多 3 张哦 🌸","",""); return; }
-  pickImage(1000, 450000, (data)=>{ composeImgs.push(data); renderComposePreview(); });
+  const remaining=MAX_POST_IMGS-composeImgs.length;
+  if(remaining<=0){ toast("最多 "+MAX_POST_IMGS+" 张哦 🌸","",""); return; }
+  // 相册可一次多选，逐张压好即刻显示
+  pickImagesMulti(1000, 450000, remaining,
+    (data)=>{ if(composeImgs.length<MAX_POST_IMGS){ composeImgs.push(data); renderComposePreview(); } },
+    ()=>{ toast("图片已添加 🌷","","") });
 }
 function removePostImage(i){ composeImgs.splice(i,1); renderComposePreview(); }
 function publishPost(){
@@ -2925,7 +2966,11 @@ function boot(){
       // 立即进首页（撤掉遮罩），不卡等档案请求；档案没填完再后台转去建档
       go("home"); navTo("home");
       CLOUD.db.collection("users").doc(uid).get().then(r=>{
-        const p=r.data&&r.data[0]; if(p){ upsertUser(p); if(!p.nick){ ensureMyUserObj(); startProfile(); } else rerenderCurrent(); }
+        const p=r.data&&r.data[0]; const local=me();
+        if(p){
+          if(local && (local.updatedAt||0) > (p.updatedAt||0)){ CWuser(local); rerenderCurrent(); logEvent("info","本地档案较新，已保留并补同步云端"); }
+          else { upsertUser(p); if(!p.nick){ ensureMyUserObj(); startProfile(); } else rerenderCurrent(); }
+        }
         else { ensureMyUserObj(); startProfile(); }
       }).catch(e=>logEvent("error","boot user:"+(e.message||e)));
     })();
