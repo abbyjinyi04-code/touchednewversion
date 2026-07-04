@@ -672,22 +672,24 @@ const CLOUDBASE_REGION = "ap-shanghai";   // 若环境在广州填 ap-guangzhou�
 const DB_KEY = "touched_db_v1";
 let DB = null;
 
+/* 生成用于本地缓存的「精简快照」：剥离所有大图 base64（图片只在内存显示 + 存云端，绝不进 localStorage，
+   否则共享的配图帖会迅速撑爆浏览器 ~5MB 配额，导致连纯文字帖都保存失败/卡住）。内存里的 DB 不受影响。 */
+function slimForStorage(){
+  const big=s=>typeof s==="string"&&s.length>3000;
+  const stripPost=p=>{ const o=Object.assign({},p); if(big(o.image))o.image=null; if(Array.isArray(o.images))o.images=o.images.map(x=>big(x)?null:x); return o; };
+  const d=Object.assign({}, DB);
+  d.posts=(DB.posts||[]).map(stripPost);
+  d.stories=(DB.stories||[]).map(stripPost);
+  d.questions=(DB.questions||[]).map(stripPost);
+  d.users=(DB.users||[]).map(u=>{ const o=Object.assign({},u); if(big(o.avatarImg))o.avatarImg=null; if(big(o.bgImg))o.bgImg=null; return o; });
+  return d;
+}
 function saveDB(){
-  try{ localStorage.setItem(DB_KEY, JSON.stringify(DB)); }
+  try{ localStorage.setItem(DB_KEY, JSON.stringify(slimForStorage())); }
   catch(e){
-    // 本地缓存配额溢出（大量配图帖会撑爆 localStorage ~5MB）——存一份「不含大图」的精简版，
-    // 图片仍在内存里正常显示、也已写入云端；刷新后由云端补回。绝不让保存抛错卡住发帖等操作。
-    try{
-      const slim=JSON.parse(JSON.stringify(DB));
-      const big=s=>typeof s==="string"&&s.length>3000;
-      const stripImgs=o=>{ if(!o)return; if(big(o.image))o.image=null; if(Array.isArray(o.images))o.images=o.images.map(x=>big(x)?null:x); };
-      (slim.posts||[]).forEach(stripImgs);
-      (slim.stories||[]).forEach(stripImgs);
-      (slim.questions||[]).forEach(stripImgs);
-      (slim.users||[]).forEach(u=>{ if(big(u.avatarImg))u.avatarImg=null; if(big(u.bgImg))u.bgImg=null; });
-      localStorage.setItem(DB_KEY, JSON.stringify(slim));
-      try{ logOnce("quota","本地缓存已满：已精简保存，图片改由云端加载（不影响发帖/使用）"); }catch(_){}
-    }catch(e2){ try{ logOnce("quota2","本地缓存写入失败（已忽略，不影响使用）:"+(e2.message||e2)); }catch(_){} }
+    // 极端情况下仍超限：先清掉本 App 旧缓存再写一次精简版；再不行就放弃本地缓存（数据走云端，不影响使用）
+    try{ localStorage.removeItem(DB_KEY); localStorage.setItem(DB_KEY, JSON.stringify(slimForStorage())); }
+    catch(e2){ try{ logOnce("quota","本地缓存写入失败（已忽略，不影响使用，数据走云端）"); }catch(_){} }
   }
 }
 function loadDB(){
