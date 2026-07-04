@@ -863,20 +863,22 @@ function cloudStart(){
   DB.chats=DB.chats||{};
   fetchMe(); fetchPrivate(); fetchQuestions(); fetchPosts(); fetchStories(); fetchRelationships(); fetchNotifications();
   const uid=DB.currentUserId;
-  startWatch("questions", ()=>CLOUD.db.collection("questions"), fetchQuestions);
-  startWatch("posts", ()=>CLOUD.db.collection("posts"), fetchPosts);
-  startWatch("stories", ()=>CLOUD.db.collection("stories"), fetchStories);
-  startWatch("relationships", ()=>CLOUD.db.collection("relationships").where({bId:uid}), fetchRelationships);
-  startWatch("notifications", ()=>CLOUD.db.collection("notifications").where({toUid:uid}), fetchNotifications);
+  // 说明：实时监听(WebSocket)在国内网络上基本连不上，只会刷红字+一条 JSON 解析报错，且数据本就靠下面的轮询兜底。
+  // 因此不再开启 .watch() 实时通道，统一用轮询——日志更干净，功能不受影响。（如需恢复实时，取消下面注释即可）
+  // startWatch("questions", ()=>CLOUD.db.collection("questions"), fetchQuestions);
+  // startWatch("posts", ()=>CLOUD.db.collection("posts"), fetchPosts);
+  // startWatch("stories", ()=>CLOUD.db.collection("stories"), fetchStories);
+  // startWatch("relationships", ()=>CLOUD.db.collection("relationships").where({bId:uid}), fetchRelationships);
+  // startWatch("notifications", ()=>CLOUD.db.collection("notifications").where({toUid:uid}), fetchNotifications);
   // 通知快轮询（5 秒），保证红点/提示及时不漏
   if(!CLOUD._notePoll){ CLOUD._notePoll=setInterval(()=>{ if(!document.hidden) fetchNotifications(); }, 5000); }
-  // 内容兜底轮询（15 秒）
+  // 内容兜底轮询（12 秒）——实时已关，这是内容更新的唯一来源，稍微调快一点
   if(!CLOUD._poll){ CLOUD._poll=setInterval(()=>{
     if(document.hidden) return;
     if(currentScreen==="home"){ fetchQuestions(); fetchPosts(); }
     else if(currentScreen==="aware"){ fetchStories(); }
     else if(currentScreen==="touch"||currentScreen==="chat"||currentScreen==="relmgmt"){ fetchRelationships(); }
-  }, 15000); }
+  }, 12000); }
 }
 let _watchInit={};
 function startWatch(name, queryFn, onChange){
