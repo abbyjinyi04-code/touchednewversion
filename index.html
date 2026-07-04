@@ -2880,24 +2880,29 @@ function boot(){
   loadDB();
   if(DB.devLog) DB.devLog.forEach(l=>DEV_LOG.push(l));
   logEvent("info","App 启动");
-  // 启动时先盖一层加载遮罩，等确定登录状态再路由——已登录直接进首页，不闪欢迎页
-  try{ document.getElementById("welcome").classList.remove("active"); document.getElementById("loader").classList.add("show"); document.getElementById("loaderText").textContent="正在进入她触…🌸"; }catch(e){}
+  // 启动时盖一层加载遮罩（欢迎页仍在底下做后备），确认登录后再路由——已登录直接进首页
+  try{ document.getElementById("loader").classList.add("show"); document.getElementById("loaderText").textContent="正在进入她触…🌸"; }catch(e){}
+  // 安全兜底：无论如何 6 秒后一定撤掉遮罩，绝不永久白屏（手机网络慢时也能进欢迎页）
+  setTimeout(()=>{ try{ const l=document.getElementById("loader"); if(l && !LOADER_BUSY && !document.querySelector(".screen.active")){ l.classList.remove("show"); go("welcome"); playWelcome(); } else if(l && !LOADER_BUSY){ l.classList.remove("show"); } }catch(e){} }, 6000);
   if(cloudInit()){
     logEvent("info","云端共享社区已启用（CloudBase）");
     (async function(){
       let uid=null;
-      try{ const gu=await CLOUD.auth.getUser(); if(gu && gu.data && gu.data.user) uid=gu.data.user.id; }catch(e){ logEvent("error","读取登录态:"+(e.message||e)); }
-      if(!uid){   // 未登录 → 欢迎页 → I'm in → 手机验证码登录
+      // 登录态检查加 4.5 秒超时，避免手机端 getUser 卡住导致白屏
+      try{ const gu=await Promise.race([ CLOUD.auth.getUser(), new Promise(res=>setTimeout(()=>res(null),4500)) ]); if(gu && gu.data && gu.data.user) uid=gu.data.user.id; }catch(e){ logEvent("error","读取登录态:"+(e.message||e)); }
+      if(!uid){   // 未登录/超时 → 欢迎页 → I'm in → 手机验证码登录
         DB.currentUserId=null;
         if(checkAdminHash()){ openAdminGate(); return; }
         go("welcome"); playWelcome(); return;
       }
       DB.currentUserId=uid; hideBanner(); cloudStart();
       if(checkAdminHash()){ openAdminGate(); return; }
-      let prof=me();
-      if(!prof){ try{ const r=await CLOUD.db.collection("users").doc(uid).get(); prof=r.data&&r.data[0]; if(prof) upsertUser(prof); }catch(e){ logEvent("error","boot user:"+(e.message||e)); } }
-      if(prof && prof.nick){ go("home"); navTo("home"); }
-      else { ensureMyUserObj(); startProfile(); }   // 已登录但没填档案 → 去建档
+      // 立即进首页（撤掉遮罩），不卡等档案请求；档案没填完再后台转去建档
+      go("home"); navTo("home");
+      CLOUD.db.collection("users").doc(uid).get().then(r=>{
+        const p=r.data&&r.data[0]; if(p){ upsertUser(p); if(!p.nick){ ensureMyUserObj(); startProfile(); } else rerenderCurrent(); }
+        else { ensureMyUserObj(); startProfile(); }
+      }).catch(e=>logEvent("error","boot user:"+(e.message||e)));
     })();
     return;
   }
