@@ -42,8 +42,7 @@ body{
   padding:0;
 }
 .screen.active{display:flex;animation:scrFade .2s ease both;}
-@keyframes scrFade{from{opacity:.55;}to{opacity:1;}
-}
+@keyframes scrFade{from{opacity:.55;}to{opacity:1;}}
 @keyframes fadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:translateY(0);}}
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
 @keyframes pop{0%{transform:scale(1);}40%{transform:scale(1.14);}70%{transform:scale(.94);}100%{transform:scale(1);}}
@@ -409,16 +408,7 @@ textarea,input,select{max-width:100%;}
         <div class="tab" id="tabParty" onclick="switchHomeTab('party')">🎉 派对屋</div>
       </div>
     </div>
-    <div class="wrap has-tabbar" id="homeBody">
-          <div id="partyContent" style="display:none;">
-            <div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><button class="btn sm" onclick="openComposePost()">＋ 发帖</button></div>
-            <div id="partyPostList"></div>
-          </div>
-          <div id="worryContent" style="display:none;">
-            <div style="display:flex;justify-content:flex-end;margin-bottom:2px;"><button class="btn sm" onclick="startAsk()">＋ 发问</button></div>
-            <div id="worryCardContainer"></div>
-          </div>
-        </div>
+    <div class="wrap has-tabbar" id="homeBody"></div>
   </section>
 
   <section id="touch" class="screen">
@@ -680,23 +670,15 @@ const CLOUDBASE_REGION = "ap-shanghai";   // 若环境在广州填 ap-guangzhou�
 "use strict";
 /* ---------- 存储层 ---------- */
 const DB_KEY = "touched_db_v1";
-const POSTS_PER_PAGE = 10; // 每页显示 10 个帖子
-let currentPage = 1; // 当前页码
-let isLoadingPosts = false; // 标识是否正在加载帖子
 let DB = null;
-let userCache = new Map(); // 缓存 userById 的结果
-
 
 function saveDB(){ localStorage.setItem(DB_KEY, JSON.stringify(DB)); }
-const debouncedSaveDB = debounce(saveDB, 500); // 500ms 延迟
-
 function loadDB(){
   const raw = localStorage.getItem(DB_KEY);
   if(raw){ try{ DB = JSON.parse(raw); }catch(e){ DB=null; } }
   if(!DB){ DB = seedDB(); saveDB(); }
-  userCache.clear(); // 清空用户缓存
 }
-function resetDB(){ localStorage.removeItem(DB_KEY); localStorage.removeItem("touched_session"); location.reload(); userCache.clear(); }
+function resetDB(){ localStorage.removeItem(DB_KEY); localStorage.removeItem("touched_session"); location.reload(); }
 
 /* =========================================================
    ☁️ 云同步层（腾讯云 CloudBase · 共享真实社区）
@@ -715,7 +697,6 @@ function cloudInit(){
   try{
     CLOUD.app = cloudbase.init({ env:CLOUDBASE_ENV, region:(typeof CLOUDBASE_REGION!=="undefined"?CLOUDBASE_REGION:"ap-shanghai") });
     CLOUD.auth = CLOUD.app.auth;   // v2：auth 是属性，不是函数调用
-    CLOUD.storage = CLOUD.app.storage(); // 初始化 CloudBase Storage
     CLOUD.db = CLOUD.app.database();
     CLOUD.cmd = CLOUD.db.command;
     CLOUD.enabled = true;
@@ -769,29 +750,23 @@ function cwArrPull(coll, id, field, value){
 function CWmeta(){}   // 管理员口令仅存本地，不上云
 /* 用户缓存：按需懒加载她人公开档案 */
 const _userFetching={};
-function upsertUser(u){ 
-  if(!u||!u.id) return;
-  const i=DB.users.findIndex(x=>x.id===u.id);
-  if(i>=0) DB.users[i]={...DB.users[i],...u};
-  else DB.users.push(u);
-  userCache.set(u.id, DB.users.find(x=>x.id===u.id)); // 更新缓存
-}
+function upsertUser(u){ if(!u||!u.id) return; const i=DB.users.findIndex(x=>x.id===u.id); if(i>=0) DB.users[i]={...DB.users[i],...u}; else DB.users.push(u); }
 function ensureUserLoaded(id){
   if(!CLOUD.enabled || !id) return;
   if(userById(id) || _userFetching[id]) return;
   _userFetching[id]=true;
   CLOUD.db.collection("users").doc(id).get().then(r=>{
     _userFetching[id]=false;
-    const u=r.data&&r.data[0]; if(u){ upsertUser(u); try{debouncedSaveDB();}catch(e){} rerenderCurrent(); }
+    const u=r.data&&r.data[0]; if(u){ upsertUser(u); try{saveDB();}catch(e){} rerenderCurrent(); }
   }).catch(e=>{ _userFetching[id]=false; });
 }
 function prefetchAuthors(arr){ const seen={}; (arr||[]).forEach(o=>{ const a=o.authorId; if(a&&!seen[a]){ seen[a]=1; ensureUserLoaded(a); } }); }
 async function cloudMaybeSeed(){}   // 演示数据由后台一次性写入，客户端不 seed
 
 /* 拉取各集合（关系/私密靠安全规则只返回自己的） */
-async function fetchQuestions(){ const t0=Date.now(); try{ const r=await CLOUD.db.collection("questions").orderBy("createdAt","desc").limit(60).get(); logEvent("info","取烦恼屋 "+(Date.now()-t0)+"ms"); DB.questions=r.data||[]; prefetchAuthors(DB.questions); CLOUD.ready=true; try{debouncedSaveDB();}catch(e){} if(currentScreen==="home")renderHome(); }catch(e){ logEvent("error","取烦恼屋失败:"+(e.message||e)); } }
-async function fetchPosts(){ try{ const r=await CLOUD.db.collection("posts").orderBy("createdAt","desc").limit(40).get(); DB.posts=r.data||[]; prefetchAuthors(DB.posts); try{debouncedSaveDB();}catch(e){} if(currentScreen==="home")renderHome(); }catch(e){ logEvent("error","取派对屋失败:"+(e.message||e)); } }
-async function fetchStories(){ try{ const r=await CLOUD.db.collection("stories").orderBy("createdAt","desc").limit(60).get(); DB.stories=r.data||[]; try{debouncedSaveDB();}catch(e){} if(currentScreen==="aware")renderAware(); }catch(e){ logEvent("error","取她意识失败:"+(e.message||e)); } }
+async function fetchQuestions(){ const t0=Date.now(); try{ const r=await CLOUD.db.collection("questions").orderBy("createdAt","desc").limit(60).get(); logEvent("info","取烦恼屋 "+(Date.now()-t0)+"ms"); DB.questions=r.data||[]; prefetchAuthors(DB.questions); CLOUD.ready=true; try{saveDB();}catch(e){} if(currentScreen==="home")renderHome(); }catch(e){ logEvent("error","取烦恼屋失败:"+(e.message||e)); } }
+async function fetchPosts(){ try{ const r=await CLOUD.db.collection("posts").orderBy("createdAt","desc").limit(40).get(); DB.posts=r.data||[]; prefetchAuthors(DB.posts); try{saveDB();}catch(e){} if(currentScreen==="home")renderHome(); }catch(e){ logEvent("error","取派对屋失败:"+(e.message||e)); } }
+async function fetchStories(){ try{ const r=await CLOUD.db.collection("stories").orderBy("createdAt","desc").limit(60).get(); DB.stories=r.data||[]; try{saveDB();}catch(e){} if(currentScreen==="aware")renderAware(); }catch(e){ logEvent("error","取她意识失败:"+(e.message||e)); } }
 async function fetchRelationships(){
   const uid=DB.currentUserId; if(!uid) return;
   try{
@@ -806,73 +781,29 @@ async function fetchRelationships(){
     DB.relationships=Object.values(map);
     DB.chats=DB.chats||{};
     DB.relationships.forEach(rel=>{ if(rel.msgs) DB.chats[rel.id]=rel.msgs; ensureUserLoaded(rel.aId===uid?rel.bId:rel.aId); });
-    try{debouncedSaveDB();}catch(e){} rerenderCurrent();
+    try{saveDB();}catch(e){} rerenderCurrent();
   }catch(e){ logOnce("rel","取关系失败:"+(e.message||e)); }
 }
-async function fetchMe(){ const uid=DB.currentUserId; const t0=Date.now(); try{ const r=await CLOUD.db.collection("users").doc(uid).get(); logEvent("info","取个人资料 "+(Date.now()-t0)+"ms"); const u=r.data&&r.data[0]; if(u){ upsertUser(u); try{debouncedSaveDB();}catch(e){} rerenderCurrent(); } }catch(e){ logEvent("error","取个人资料失败:"+(e.message||e)); } }
+async function fetchMe(){ const uid=DB.currentUserId; const t0=Date.now(); try{ const r=await CLOUD.db.collection("users").doc(uid).get(); logEvent("info","取个人资料 "+(Date.now()-t0)+"ms"); const u=r.data&&r.data[0]; if(u){ upsertUser(u); try{saveDB();}catch(e){} rerenderCurrent(); } }catch(e){ logEvent("error","取个人资料失败:"+(e.message||e)); } }
 async function fetchPrivate(){ const uid=DB.currentUserId; try{ const r=await CLOUD.db.collection("private").doc(uid).get(); DB.private=(r.data&&r.data[0])||{}; }catch(e){ DB.private=DB.private||{}; } }
 /* ---- 通知（收到的轻触/评论/赞）---- */
 let _prevNoteCount=null;
-let _notificationUnsub = null; // 用于存储通知监听器的取消函数
-async function setupNotificationListener(){
-  const me_=DB.currentUserId; 
-  if(!CLOUD.enabled || !me_) {
-    if (_notificationUnsub) { _notificationUnsub(); _notificationUnsub = null; }
-    updateNavBadge(); 
-    return; 
-  }
-
-  if (_notificationUnsub) { _notificationUnsub(); } // 如果已经有监听器，先取消
-
-  try{
-    _notificationUnsub = CLOUD.db.collection("notifications")
-      .where({toUid:me_})
-      .orderBy("at", "desc")
-      .limit(200)
-      .watch({
-        onChange: snapshot => {
-          const recv = [];
-          snapshot.docs.forEach(doc => recv.push(doc.data));
-          
-          const sentLocal=(DB.notes||[]).filter(n=>n.fromUid===me_ && n.toUid!==me_);
-          DB.notes=recv.concat(sentLocal).sort((a,b)=>(b.at||0)-(a.at||0)); // 确保排序
-
-          if(_prevNoteCount!==null && recv.length>_prevNoteCount){ 
-            const l=recv[0]; 
-            if(l) toast((l.fromNick||"有人")+" "+noteVerb(l), l.content||l.refText||"", "🔔"); 
-          }
-          _prevNoteCount=recv.length;
-          try{debouncedSaveDB();}catch(e){} 
-          updateNavBadge();
-          if(currentScreen==="me") renderMe();
-          if(currentScreen==="touch") renderTouch();
-        },
-        onError:e=>logOnce("watch_notifications","实时监听通知未连上(已用轮询兜底)")
-      });
-    logEvent("info","通知实时监听已启动");
-  }catch(e){ 
-    logOnce("watchstart_notifications","通知监听启动失败:"+(e.message||e));
-    // 降级为轮询，保持旧的 fetchNotifications 逻辑
-    // 重新启用旧的轮询机制
-    startWatch("notifications", ()=>CLOUD.db.collection("notifications").where({toUid:me_}).limit(200), fetchNotificationsOld);
-  }
-}
-
-async function fetchNotificationsOld(){
+async function fetchNotifications(){
   const me_=DB.currentUserId; if(!CLOUD.enabled || !me_) { updateNavBadge(); return; }
   try{
+    // 只按 toUid 查「发给我的」——标量等值最稳，不依赖 _.or / 数组查询
     const r=await CLOUD.db.collection("notifications").where({toUid:me_}).limit(200).get();
     const recv=(r.data||[]).sort((a,b)=>(b.at||0)-(a.at||0));
+    // 合并：云端收到的 + 本地刚发出的（自己发给别人的，仅本地留痕，不影响红点）
     const sentLocal=(DB.notes||[]).filter(n=>n.fromUid===me_ && n.toUid!==me_);
     DB.notes=recv.concat(sentLocal);
     if(_prevNoteCount!==null && recv.length>_prevNoteCount){ const l=recv[0]; if(l) toast((l.fromNick||"有人")+" "+noteVerb(l), l.content||l.refText||"", "🔔"); }
     _prevNoteCount=recv.length;
-    try{debouncedSaveDB();}catch(e){} updateNavBadge();
+    try{saveDB();}catch(e){} updateNavBadge();
     if(currentScreen==="me") renderMe();
     if(currentScreen==="touch") renderTouch();
   }catch(e){ logOnce("note","取通知失败:"+(e.message||e)); }
 }
-
 function noteVerb(n){ return ({touch:"轻触了妳 🤍",comment:"评论了妳的帖子 💬",reply:"回复了妳 💬",like:"赞了妳的帖子 ❤️",save:"收藏了妳的帖子 ⭐",hand:"想和妳建立链接 🤝",message:"给妳发来私信 ✉️",seen:"看见了妳的故事 🤍"})[n.type]||"给妳留言"; }
 function createNote(toUid, type, refId, refText, content){
   if(!toUid || toUid===DB.currentUserId) return;   // 不给自己发通知
@@ -911,12 +842,15 @@ function cloudStart(){
   if(!CLOUD.enabled || CLOUD.started || !DB.currentUserId) return;
   CLOUD.started = true;
   DB.chats=DB.chats||{};
-  fetchMe(); fetchPrivate(); fetchQuestions(); fetchPosts(); fetchStories(); fetchRelationships(); setupNotificationListener();
+  fetchMe(); fetchPrivate(); fetchQuestions(); fetchPosts(); fetchStories(); fetchRelationships(); fetchNotifications();
   const uid=DB.currentUserId;
   startWatch("questions", ()=>CLOUD.db.collection("questions"), fetchQuestions);
   startWatch("posts", ()=>CLOUD.db.collection("posts"), fetchPosts);
   startWatch("stories", ()=>CLOUD.db.collection("stories"), fetchStories);
   startWatch("relationships", ()=>CLOUD.db.collection("relationships").where({bId:uid}), fetchRelationships);
+  startWatch("notifications", ()=>CLOUD.db.collection("notifications").where({toUid:uid}), fetchNotifications);
+  // 通知快轮询（5 秒），保证红点/提示及时不漏
+  if(!CLOUD._notePoll){ CLOUD._notePoll=setInterval(()=>{ if(!document.hidden) fetchNotifications(); }, 5000); }
   // 内容兜底轮询（15 秒）
   if(!CLOUD._poll){ CLOUD._poll=setInterval(()=>{
     if(document.hidden) return;
@@ -1032,13 +966,7 @@ function seedDB(){
 
 /* ---------- 当前用户 ---------- */
 function me(){ return DB.users.find(u=>u.id===DB.currentUserId); }
-function userById(id){ 
-  if (!id) return null;
-  if (userCache.has(id)) return userCache.get(id); // 从缓存读取
-  const user = DB.users.find(u=>u.id===id);
-  if (user) userCache.set(id, user); // 写入缓存
-  return user;
-}
+function userById(id){ return DB.users.find(u=>u.id===id); }
 
 /* ---------- 屏幕导航 ---------- */
 let currentScreen = "welcome";
@@ -1056,6 +984,7 @@ function go(id){
   if(showTab){
     document.querySelectorAll(".nav-item").forEach(n=>n.classList.toggle("on", n.dataset.screen===id));
   }
+}
 function navTo(id){
   go(id);
   if(id==="home") renderHome();
@@ -1098,7 +1027,7 @@ function addTemp(amount, reason){
   const u = me(); if(!u) return;
   if(!u.tempWeek || u.tempWeek!==weekKey()){ u.tempWeek=weekKey(); u.temp=0; }
   u.temp = (u.temp||0) + amount;
-  debouncedSaveDB(); CWuser(u);
+  saveDB(); CWuser(u);
   toast("温度 +"+amount+"🌡️", reason||"", "🌡️");
 }
 function myTemp(){ const u=me(); if(!u) return 0; if(u.tempWeek!==weekKey()) return 0; return u.temp||0; }
@@ -1150,11 +1079,7 @@ function welcomeExit(){
 
 /* ========== 2. 进入 / 注册 ========== */
 function freshProfile(extra){ return Object.assign({ nick:"", age:24, country:"中国", region:"", emoji:"🌸", status:"", phase:"", needs:[], purpose:"", time:"", hobbies:[], mbti:"", skills:[], traits:[], exp:[], sign:"", temp:0, tempWeek:weekKey(), isNew:true, createdAt:now() }, extra||{}); }
-function ensureMyUserObj(){ if(CLOUD.enabled && DB.currentUserId && !me()){ 
-  const newUser = freshProfile({ id:DB.currentUserId });
-  DB.users.push(newUser);
-  userCache.set(newUser.id, newUser); // 添加新用户到缓存
-} }
+function ensureMyUserObj(){ if(CLOUD.enabled && DB.currentUserId && !me()){ DB.users.push(freshProfile({ id:DB.currentUserId })); } }
 /* 欢迎页「I'm in」：云端=匿名身份已就绪，直接建档；本地=去注册页 */
 function imIn(){ go("register"); }   // 进入手机验证码登录页
 
@@ -1204,7 +1129,7 @@ async function verifyOtpCode(){
   } else {
     // 本地预览：手机号映射本地账号
     let u=DB.users.find(x=>x.phone===_otpPhone);
-    if(!u){ u=freshProfile({ id:"u_"+_otpPhone.slice(-4)+"_"+Math.random().toString(36).slice(2,5), phone:_otpPhone }); DB.users.push(u); userCache.set(u.id, u); }
+    if(!u){ u=freshProfile({ id:"u_"+_otpPhone.slice(-4)+"_"+Math.random().toString(36).slice(2,5), phone:_otpPhone }); DB.users.push(u); }
     clearInterval(_otpTimer);
     DB.currentUserId=u.id; setSession(u.id); saveDB();
     afterLogin(u.id);
@@ -1226,7 +1151,7 @@ function afterLogin(uid){
 }
 function doLoginDemo(){
   // 仅本机预览用（云端模式下也允许，但只在本机看，数据不入云）
-  let u=DB.users.find(x=>x.id==="u_lin"); if(!u){ u=freshProfile({id:"u_lin",nick:"林一一",emoji:"🌷",region:"上海",age:24}); DB.users.push(u); userCache.set(u.id, u); }
+  let u=DB.users.find(x=>x.id==="u_lin"); if(!u){ u=freshProfile({id:"u_lin",nick:"林一一",emoji:"🌷",region:"上海",age:24}); DB.users.push(u); }
   DB.currentUserId="u_lin"; DB.tutorialDone=true; setSession("u_lin"); saveDB();
   showLoader("登录中…", ()=>{ go("home"); navTo("home"); toast("演示账号 · 仅本机预览 🌷","",""); });
 }
@@ -1354,7 +1279,7 @@ let editSingle=false;
 function profNext(skip){
   if(!skip){ syncCurrentStep(); if(!stepValid()){ updateProfNext(); return; } }
   if(editSingle){   // 单项编辑：保存这一项就回个人主页 + 档案菜单（不进入全流程）
-    const u=me(); if(u){ Object.assign(u, profDraft); u.updatedAt=now(); debouncedSaveDB(); CWuser(u); }
+    const u=me(); if(u){ Object.assign(u, profDraft); u.updatedAt=now(); saveDB(); CWuser(u); }
     editSingle=false; navTo("me"); toast("已保存 🌸","",""); editProfileMenu(); return;
   }
   if(profStepIdx<PROF_STEPS.length-1){ profStepIdx++; renderProfStep(); }
@@ -1367,9 +1292,9 @@ function finishProfile(){
   if(!u.nick) u.nick="匿名小花";
   if(firstTime && !u.avatarImg) u.emoji = ["🌷","🌸","🌹","🌻","🌼","🪷","🐰","🌙","🍃"][Math.floor(Math.random()*9)];
   u.updatedAt=now();
-  debouncedSaveDB(); CWuser(u);
+  saveDB(); CWuser(u);
   if(firstTime){
-    u.isNew=true; debouncedSaveDB();
+    u.isNew=true; saveDB();
     showLoader("正在为妳点亮她触…", ()=>{ go("home"); renderHome(); if(!DB.tutorialDone) startTutorial(); });
   } else {
     showLoader("已保存 🌸", ()=>{ go("me"); renderMe(); toast("档案已更新 🌷","",""); });
@@ -1403,7 +1328,7 @@ function nextTut(){ tutIdx++; renderTut(); }
 function endTutorial(){
   document.querySelectorAll(".tut-highlight").forEach(e=>e.classList.remove("tut-highlight"));
   document.getElementById("tutorial").classList.remove("show");
-  DB.tutorialDone=true; const u=me(); if(u) u.isNew=false; debouncedSaveDB();
+  DB.tutorialDone=true; const u=me(); if(u) u.isNew=false; saveDB();
   toast("欢迎正式加入她触 🌷","愿妳在这里被温柔接住","🌸");
 }
 
@@ -1413,30 +1338,9 @@ function switchHomeTab(t){
   homeTab=t;
   document.getElementById("tabWorry").classList.toggle("on",t==="worry");
   document.getElementById("tabParty").classList.toggle("on",t==="party");
-
-  document.getElementById("partyContent").style.display = (t==="party" ? "block" : "none");
-  document.getElementById("worryContent").style.display = (t==="worry" ? "block" : "none");
-
-  if(t==="party") renderParty();
-  else if(t==="worry") renderWorry();
+  renderHome();
 }
-function renderHome(){ 
-  document.getElementById("partyContent").style.display = (homeTab==="party" ? "block" : "none");
-  document.getElementById("worryContent").style.display = (homeTab==="worry" ? "block" : "none");
-  if(homeTab==="party") {
-    renderParty();
-    const partyContent = document.getElementById("partyContent");
-    if (partyContent) {
-      const debouncedLoadMore = debounce(() => {
-        if (partyContent.scrollTop + partyContent.clientHeight >= partyContent.scrollHeight - 100) {
-          loadMorePosts();
-        }
-      }, 200);
-      partyContent.onscroll = debouncedLoadMore;
-    }
-  }
-  else if(homeTab==="worry") renderWorry();
-}
+function renderHome(){ homeTab==="worry"?renderWorry():renderParty(); }
 
 /* ---- 烦恼屋：一次一张卡片 ---- */
 const _worrySeed=Math.floor(Math.random()*1e9);   // 每次开 App（会话）随机一次，同一会话内稳定
@@ -1481,7 +1385,7 @@ function renderWorry(){
 function skipQuestion(id){
   if(!DB.seenQuestions.includes(id)) DB.seenQuestions.push(id);
   DB.skipped=DB.skipped||[]; if(!DB.skipped.includes(id)) DB.skipped.push(id);   // 记录跳过的，可回看
-  debouncedSaveDB();
+  saveDB();
   const c=document.getElementById("qcard");
   if(c){ c.style.transition="transform .35s,opacity .35s"; c.style.transform="translateX(120%) rotate(8deg)"; c.style.opacity="0"; }
   setTimeout(renderWorry,300);
@@ -1507,10 +1411,10 @@ function showSkipped(){
 function unskip(id){
   DB.skipped=(DB.skipped||[]).filter(x=>x!==id);
   DB.seenQuestions=(DB.seenQuestions||[]).filter(x=>x!==id);
-  debouncedSaveDB(); closeSheet(); toast("已放回烦恼屋 🌿","",""); if(currentScreen==="home"&&homeTab==="worry") renderWorry();
+  saveDB(); closeSheet(); toast("已放回烦恼屋 🌿","",""); if(currentScreen==="home"&&homeTab==="worry") renderWorry();
 }
 /* ---- 浏览过的烦恼记录（个人主页入口，永不消失，随时回看/链接）---- */
-function markBrowsed(id){ DB.browsed=DB.browsed||[]; const i=DB.browsed.indexOf(id); if(i>=0) DB.browsed.splice(i,1); DB.browsed.unshift(id); if(DB.browsed.length>200) DB.browsed.length=200; debouncedSaveDB(); }
+function markBrowsed(id){ DB.browsed=DB.browsed||[]; const i=DB.browsed.indexOf(id); if(i>=0) DB.browsed.splice(i,1); DB.browsed.unshift(id); if(DB.browsed.length>200) DB.browsed.length=200; saveDB(); }
 function showBrowsed(){
   const list=(DB.browsed||[]).map(id=>DB.questions.find(q=>q.id===id)).filter(q=>q&&!q.hidden&&q.authorId!==DB.currentUserId);
   openSheet(`<h3>浏览过的烦恼 💭</h3><p class="field-hint">妳看过的每一个烦恼都留在这里，随时可以回来轻触或拉手 🌸</p>
@@ -1557,7 +1461,7 @@ function sendTouch(){
   const item={by:DB.currentUserId, at:now()};   // 公开问题上只存"谁触过"用于计数/去重，内容只进通知（仅双方可见）
   if(!q.touches.some(t=>t.by===DB.currentUserId)){ q.touches.push(item); if(CLOUD.enabled) cwArrAdd("questions",q.id,"touches",item); else CW("questions",q); }
   if(!DB.seenQuestions.includes(q.id)) DB.seenQuestions.push(q.id);
-  debouncedSaveDB();
+  saveDB();
   createNote(q.authorId, "touch", q.id, q.content, content);   // 给发问者发通知（内容仅双方可见）
   closeSheet();
   addTemp(5,"完成一次轻触");
@@ -1567,27 +1471,15 @@ function sendTouch(){
 }
 
 /* ---- 派对屋 ---- */
-function renderParty(append = false){
-  const postListContainer=document.getElementById("partyPostList");
-  if (!postListContainer) return; // 确保容器存在
-
-  if (!append) {
-    postListContainer.innerHTML = ''; // 清空现有内容
-    currentPage = 1; // 重置页码
-  }
-
-  const allPosts=DB.posts.filter(p=>!p.hidden);   // 稳定顺序（最新在前），不再每次点赞重排，避免跳动
-  const startIndex = (currentPage - 1) * POSTS_PER_PAGE;
-  const endIndex = startIndex + POSTS_PER_PAGE;
-  const postsToRender = allPosts.slice(startIndex, endIndex);
-
-  let html = "";
-  if(!allPosts.length && !append) html+=`<div class="empty">还没有动态，来发第一条吧🎉</div>`;
-
-  postsToRender.forEach(p=>{
+function renderParty(){
+  const body=document.getElementById("homeBody");
+  let html=`<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><button class="btn sm" onclick="openComposePost()">＋ 发帖</button></div>`;
+  const posts=DB.posts.filter(p=>!p.hidden);   // 稳定顺序（最新在前），不再每次点赞重排，避免跳动
+  if(!posts.length) html+=`<div class="empty">还没有动态，来发第一条吧🎉</div>`;
+  posts.forEach(p=>{
     const a=userById(p.authorId)||{nick:"姐妹",emoji:"🌸"};
     const liked=p.likes.includes(DB.currentUserId), saved=p.saved.includes(DB.currentUserId);
-    html+=`<div class="post" id="post-${p.id}">
+    html+=`<div class="post">
       <div class="post-head"><div class="avatar" style="width:38px;height:38px;font-size:18px;cursor:pointer;" onclick="viewUser('${p.authorId}')">${avInner(a)}</div>
         <div><div class="li-title" style="cursor:pointer;" onclick="viewUser('${p.authorId}')">${a.nick}</div><div class="li-sub">${[a.region||a.country||"", fmtTime(p.createdAt)].filter(Boolean).join(" · ")}</div></div></div>
       <div>${escapeHtml(p.text)}</div>
@@ -1600,38 +1492,7 @@ function renderParty(append = false){
       ${p.comments.filter(c=>!c.hidden).map(c=>commentLine(c)).join("")}
     </div>`;
   });
-
-  postListContainer.insertAdjacentHTML('beforeend', html); // 追加内容
-
-  // 如果还有更多帖子，显示“加载更多”提示
-  if (endIndex < allPosts.length) {
-    const loadMoreDiv = document.getElementById('loadMorePosts');
-    if (!loadMoreDiv) {
-      postListContainer.insertAdjacentHTML('beforeend', '<div id="loadMorePosts" style="text-align:center; padding:10px; color:#999;">加载中...</div>');
-    }
-  } else {
-    const loadMoreDiv = document.getElementById('loadMorePosts');
-    if (loadMoreDiv) loadMoreDiv.remove(); // 没有更多内容时移除加载提示
-  }
-}
-
-// 加载更多帖子
-function loadMorePosts() {
-  if (isLoadingPosts) return; // 避免重复加载
-
-  const allPosts = DB.posts.filter(p => !p.hidden);
-  const hasMore = (currentPage * POSTS_PER_PAGE) < allPosts.length;
-
-  if (hasMore) {
-    isLoadingPosts = true;
-    currentPage++;
-    renderParty(true);
-    isLoadingPosts = false; // 加载完成后重置标志
-  } else {
-    // 如果没有更多帖子，移除“加载中...”提示
-    const loadMoreDiv = document.getElementById('loadMorePosts');
-    if (loadMoreDiv) loadMoreDiv.remove();
-  }
+  body.innerHTML=html;
 }
 function commentLine(c){
   const nm=c.nick||(userById(c.by)||{}).nick||"姐妹";
@@ -1643,34 +1504,14 @@ function toggleLike(id){
   const i=p.likes.indexOf(DB.currentUserId);
   if(i>=0){ p.likes.splice(i,1); if(CLOUD.enabled) cwArrPull("posts",id,"likes",DB.currentUserId); }
   else { p.likes.push(DB.currentUserId); if(CLOUD.enabled) cwArrAdd("posts",id,"likes",DB.currentUserId); createNote(p.authorId,"like",id,p.text); }
-  debouncedSaveDB(); if(!CLOUD.enabled) CW("posts",p);
-  // 局部更新 DOM
-  const postEl = document.getElementById(`post-${id}`);
-  if (postEl) {
-    const liked = p.likes.includes(DB.currentUserId);
-    const likeSpan = postEl.querySelector('.post-actions span:first-child');
-    if (likeSpan) {
-      likeSpan.className = liked ? "on" : "";
-      likeSpan.innerHTML = `${liked?"❤️":"🤍"} ${p.likes.length}`;
-    }
-  }
+  saveDB(); if(!CLOUD.enabled) CW("posts",p); renderParty();
 }
 function toggleSave(id){
   const p=DB.posts.find(x=>x.id===id); if(!p) return;
   const i=p.saved.indexOf(DB.currentUserId);
   if(i>=0){ p.saved.splice(i,1); if(CLOUD.enabled) cwArrPull("posts",id,"saved",DB.currentUserId); }
   else { p.saved.push(DB.currentUserId); if(CLOUD.enabled) cwArrAdd("posts",id,"saved",DB.currentUserId); createNote(p.authorId,"save",id,p.text); }
-  debouncedSaveDB(); if(!CLOUD.enabled) CW("posts",p); toast(i>=0?"已取消收藏":"已收藏 ⭐","","");
-  // 局部更新 DOM
-  const postEl = document.getElementById(`post-${id}`);
-  if (postEl) {
-    const saved = p.saved.includes(DB.currentUserId);
-    const saveSpan = postEl.querySelector('.post-actions span:last-child');
-    if (saveSpan) {
-      saveSpan.className = saved ? "on" : "";
-      saveSpan.innerHTML = `${saved?"⭐":"☆"} 收藏`;
-    }
-  }
+  saveDB(); if(!CLOUD.enabled) CW("posts",p); toast(i>=0?"已取消收藏":"已收藏 ⭐","",""); renderParty();
 }
 let _cmtReplyTo=null;
 function openComments(id){ _cmtReplyTo=null; renderCommentsSheet(id); }
@@ -1697,7 +1538,7 @@ function sendComment(id){
   const c={ id:uid("c"), by:DB.currentUserId, nick:(me()&&me().nick)||"姐妹", text:v, replyTo:_cmtReplyTo||null, at:now() };
   p.comments.push(c);
   if(CLOUD.enabled) cwArrAdd("posts",id,"comments",c); else CW("posts",p);
-  debouncedSaveDB();
+  saveDB();
   createNote(p.authorId, "comment", id, p.text, (c.replyTo?("回复@"+c.replyTo+"："):"")+v);   // 通知发帖者
   _cmtReplyTo=null; closeSheet(); renderParty(); toast("评论成功 🌸","","");
 }
@@ -1771,41 +1612,6 @@ function compressDataURL(dataURL, maxDim, maxChars, cb){
   img.src=dataURL;
 }
 
-// 辅助函数：将 Data URL 转换为 Blob 对象
-function dataURLtoBlob(dataurl) {
-  var arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1],
-    bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
-  while(n--){
-    u8arr[n] = bstr.charCodeAt(n);
-  }
-  return new Blob([u8arr], {type:mime});
-}
-
-// 上传 Blob 到 CloudBase Storage，并返回文件 ID (URL)
-async function uploadImageToCloudBase(blob, filename) {
-  if (!CLOUD.enabled || !CLOUD.storage) {
-    logEvent("error", "CloudBase Storage 未初始化或未启用");
-    return null;
-  }
-  // 使用 uid() 和时间戳确保文件名唯一性
-  const cloudPath = `post_images/${uid("img")}_${Date.now()}_${filename}`;
-  try {
-    const res = await CLOUD.storage.uploadFile({
-      cloudPath: cloudPath,
-      filePath: blob,
-    });
-    if (res.fileID) {
-      return res.fileID; // 返回 Cloud Storage 的文件 ID (URL)
-    } else {
-      logEvent("error", "图片上传失败: " + JSON.stringify(res));
-      return null;
-    }
-  } catch (e) {
-    logEvent("error", "图片上传异常: " + (e.message || e));
-    return null;
-  }
-}
-
 let composeImgs=[];
 function openComposePost(){
   composeImgs=[];
@@ -1829,52 +1635,12 @@ function pickPostImage(){
     ()=>{ toast("图片已添加 🌷","","") });
 }
 function removePostImage(i){ composeImgs.splice(i,1); renderComposePreview(); }
-async function publishPost(){
+function publishPost(){
   const t=document.getElementById("postText").value.trim();
   if(!t && !composeImgs.length){ toast("写点什么或配张图再发吧🌷","",""); return; }
-
-  // 禁用发布按钮，显示加载提示
-  const publishBtn = document.querySelector("#sheet .btn.block");
-  if(publishBtn) publishBtn.disabled = true;
-  toast("正在发布中... 稍等哦 ⏳","","");
-
-  let uploadedImageUrls = [];
-  try {
-    // 遍历 composeImgs 数组，逐个上传图片
-    for (const dataURL of composeImgs) {
-      const blob = dataURLtoBlob(dataURL);
-      // 假设从 mime type 中提取文件名后缀，例如 image/jpeg -> .jpeg
-      const mime = dataURL.split(',')[0].match(/:(.*?);/)[1];
-      const extension = mime ? '.' + mime.split('/')[1] : '.jpeg'; // 默认 .jpeg
-      const imageUrl = await uploadImageToCloudBase(blob, uid("file") + extension);
-
-      if (imageUrl) {
-        uploadedImageUrls.push(imageUrl);
-      } else {
-        throw new Error("图片上传失败"); // 如果任一图片上传失败，则抛出错误
-      }
-    }
-
-    const post={
-      id:uid("p"),
-      authorId:DB.currentUserId,
-      text:t,
-      images:uploadedImageUrls, // 使用上传后的图片 URL 数组
-      likes:[],
-      comments:[],
-      saved:[],
-      createdAt:now()
-    };
-
-    DB.posts.unshift(post); debouncedSaveDB(); CW("posts",post); composeImgs=[];
-    closeSheet(); renderParty(); toast("发布成功 🎉","妳的小世界又热闹了一点"," ");
-
-  } catch (e) {
-    logEvent("error","发布失败: " + (e.message || e));
-    toast("发布失败 ❌","请稍后再试"," ");
-  } finally {
-    if(publishBtn) publishBtn.disabled = false;
-  }
+  const post={id:uid("p"),authorId:DB.currentUserId,text:t,images:composeImgs.slice(),image:null,likes:[],comments:[],saved:[],createdAt:now()};
+  DB.posts.unshift(post); saveDB(); CW("posts",post); composeImgs=[];
+  closeSheet(); renderParty(); toast("发布成功 🎉","妳的小世界又热闹了一点","");
 }
 /* 兼容旧字段：统一取图片数组 */
 function postImages(p){ if(p.images&&p.images.length) return p.images; if(p.image) return [p.image]; return []; }
@@ -1947,7 +1713,7 @@ function askNext(){
 function submitAsk(){
   const q={ id:uid("q"), authorId:DB.currentUserId, domain:askDraft.domain, region:askDraft.region,
     priority:[...askDraft.priority], content:askDraft.content.trim(), visibility:askDraft.visibility, touches:[], createdAt:now() };
-  DB.questions.unshift(q); debouncedSaveDB(); CW("questions",q);
+  DB.questions.unshift(q); saveDB(); CW("questions",q);
   closeSheet();
   addTemp(10,"发出一个问题");
   showLoader("正在为妳寻找同频的姐妹…", async ()=>{
@@ -1996,7 +1762,7 @@ function runMatch(q){
   }
   const a=best.u;
   const reasons=matchReasons(q,a);
-  q.matchedTo=a.id; debouncedSaveDB();
+  q.matchedTo=a.id; saveDB();
   go("home"); renderHome();
   openSheet(`<div class="center">
     <div class="avatar" style="margin:0 auto 10px;width:64px;height:64px;font-size:30px;">${avInner(a)}</div>
@@ -2121,7 +1887,7 @@ function initiateHand(qid){
 }
 function sendHand(qid){
   const q=DB.questions.find(x=>x.id===qid);
-  DB.seenQuestions.push(qid); debouncedSaveDB();
+  DB.seenQuestions.push(qid); saveDB();
   closeSheet();
   if(CLOUD.enabled){
     // 真实世界：拉手即和对方开启试聊，对方会在她的设备看到并收到通知
@@ -2322,7 +2088,7 @@ function finalizeLink(loose){
     if(linkDraft.myRole==="mentor"){ rel.mentorId=DB.currentUserId; rel.menteeId=linkDraft.otherId; }
     else { rel.menteeId=DB.currentUserId; rel.mentorId=linkDraft.otherId; }
   }
-  debouncedSaveDB(); CW("relationships",rel);
+  saveDB(); CW("relationships",rel);
   closeSheet();
   addTemp(20,"拉手被接受，链接建立");
   const typeName={mentorship:"🎓 Mentorship",buddy:"👯 搭子",company:"🫂 轻陪伴"}[rel.type]||"链接";
@@ -2353,11 +2119,11 @@ function ensureRelationship(otherId, opts){
     rel={ id:uid("rel"), aId:DB.currentUserId, bId:otherId, members:[DB.currentUserId, otherId], type:opts.type||"", status:opts.status||"trial",
       period:opts.period||"", freq:opts.freq||"", goal:opts.goal||"", mentorId:"", menteeId:"",
       createdAt:now(), confirmedAt:0, checkins:[], gems:[], buddyList:[], moods:[], msgs:[], endTrialBy:"", paused:false, ended:false };
-    DB.relationships.push(rel); DB.chats[rel.id]=[]; debouncedSaveDB(); CW("relationships",rel);
+    DB.relationships.push(rel); DB.chats[rel.id]=[]; saveDB(); CW("relationships",rel);
   }
   return rel;
 }
-function saveRel(rel){ if(rel){ debouncedSaveDB(); CW("relationships",rel); } }
+function saveRel(rel){ if(rel){ saveDB(); CW("relationships",rel); } }
 function isMentee(rel){ return rel.menteeId===DB.currentUserId; }
 function isMentor(rel){ return rel.mentorId===DB.currentUserId; }
 function pushMsg(relId, fromId, text, kind){
@@ -2370,7 +2136,7 @@ function pushMsg(relId, fromId, text, kind){
     // 用「原子追加」写消息，避免两台设备整条覆盖导致对方消息丢失（重登后聊天记录消失的根因）
     if(CLOUD.enabled) cwArrAdd("relationships", relId, "msgs", m); else CW("relationships",rel);
   }
-  debouncedSaveDB();
+  saveDB();
 }
 function pushSys(relId, text){ pushMsg(relId, "sys", text, "sys"); }
 
@@ -2600,7 +2366,7 @@ function submitMenteeCheckin(){
   const c={id:uid("ck"), by:activeRel.menteeId, text:v, at:now(), reply:null};
   activeRel.checkins.push(c);
   pushMsg(activeRel.id, activeRel.menteeId, v, "✅ 目标打卡");
-  debouncedSaveDB(); closeSheet();
+  saveDB(); closeSheet();
   if(currentScreen==="relmgmt") renderRelManage();
   const menteeN=userById(activeRel.menteeId).nick;
   toast("打卡已提交 ✅","已通知 mentor，等她来鼓励妳～","🌱");
@@ -2610,7 +2376,7 @@ function submitMenteeCheckin(){
     toast("妳的 mentor 看到啦 💛","稍等她的鼓励～","");
     setTimeout(()=>{
       const reply=["看到妳的进展啦，真为妳骄傲🌟","这一步走得很稳，继续保持～","卡点很正常，我们一起拆解，妳不是一个人💪","妳比上次更清晰了，我看得到妳的成长🌱"][Math.floor(Math.random()*4)];
-      c.reply=reply; pushMsg(activeRel.id, activeRel.mentorId, reply, "💛 mentor回应"); debouncedSaveDB();
+      c.reply=reply; pushMsg(activeRel.id, activeRel.mentorId, reply, "💛 mentor回应"); saveDB();
       if(currentScreen==="chat"&&activeRel.id) renderMsgs();
     },1300);
   },800);
@@ -2628,7 +2394,7 @@ function viewCheckins(){
 function replyCheckin(cid){
   const c=activeRel.checkins.find(x=>x.id===cid);
   const v=document.getElementById("rp_"+cid).value.trim(); if(!v){ toast("写句话再发吧 💛","",""); return; }
-  c.reply=v; pushMsg(activeRel.id, DB.currentUserId, v, "💛 mentor回应"); debouncedSaveDB();
+  c.reply=v; pushMsg(activeRel.id, DB.currentUserId, v, "💛 mentor回应"); saveDB();
   viewCheckins();
   toast("已鼓励 mentee 💛","妳的支持对她很重要","");
 }
@@ -2638,7 +2404,7 @@ function simMenteeCheckin(){
   const samples=["这周按计划完成了作品集的前两页，虽然慢但在推进～","投了2份简历，还在调整心态，谢谢妳上次的建议。","坚持早起复习了三天，今天有点想放弃，来打个卡。"];
   const txt=samples[Math.floor(Math.random()*samples.length)];
   const c={id:uid("ck"), by:r.menteeId, text:txt, at:now(), reply:null};
-  r.checkins.push(c); pushMsg(r.id, r.menteeId, txt, "✅ 目标打卡"); debouncedSaveDB();
+  r.checkins.push(c); pushMsg(r.id, r.menteeId, txt, "✅ 目标打卡"); saveDB();
   if(currentScreen==="relmgmt") renderRelManage();
   toast("妳的 mentee（"+menteeN+"）完成一条目标打卡","快去鼓励她吧～","🌱");
   setTimeout(()=>viewCheckins(), 900);
@@ -2667,9 +2433,9 @@ function submitReview(kind){
     const u=me(); u.graduatedWith=u.graduatedWith||[]; u.graduatedWith.push(relName(activeRel).nick);
     addTemp(50,"完成一段 mentorship 周期");
     pushSys(activeRel.id,"🎓 妳们完成了这段 mentorship，正式毕业。主页会留下「她陪我走过」的记录 🌷");
-    debouncedSaveDB(); closeSheet(); toast("毕业快乐 🎓","「她陪我走过」已记入妳的主页","🌷"); navTo("touch");
+    saveDB(); closeSheet(); toast("毕业快乐 🎓","「她陪我走过」已记入妳的主页","🌷"); navTo("touch");
   } else {
-    pushSys(activeRel.id,"🌱 妳们选择续期，继续这段旅程～"); debouncedSaveDB(); closeSheet(); renderMsgs(); toast("已续期 🌱","","");
+    pushSys(activeRel.id,"🌱 妳们选择续期，继续这段旅程～"); saveDB(); closeSheet(); renderMsgs(); toast("已续期 🌱","","");
   }
 }
 /* ---- 搭子专属 ---- */
@@ -2702,7 +2468,7 @@ function saveDiary(){
   const v=document.getElementById("diaryText").value.trim(); if(!v) return;
   const arr=myDiaries().slice(); arr.push({text:v,at:now(),rel:activeRel?activeRel.id:""});
   if(CLOUD.enabled){ DB.private=DB.private||{}; DB.private.diaries=arr; CWprivate({diaries:arr}); }
-  else { const u=me(); u.diaries=arr; debouncedSaveDB(); }
+  else { const u=me(); u.diaries=arr; saveDB(); }
   closeSheet(); toast("已写下 📔","这份心情只属于妳","");
 }
 
@@ -2731,7 +2497,7 @@ function touchStory(id){
   s.touches=s.touches||[]; s.touches.push(DB.currentUserId);
   if(CLOUD.enabled) cwArrAdd("stories",id,"touches",DB.currentUserId); else CW("stories",s);   // 原子更新，避免点完闪一下消失
   if(s.authorId) createNote(s.authorId,"seen",id,s.content);   // 通知故事作者「被看见」
-  debouncedSaveDB(); renderAware(); toast("妳看见了她 🤍","这份看见，本身就有力量","");
+  saveDB(); renderAware(); toast("妳看见了她 🤍","这份看见，本身就有力量","");
 }
 function openStoryCompose(){
   openSheet(`<h3>留下妳的人生故事 ✨</h3><p class="field-hint">可以匿名或实名，发布后永久留存</p>
@@ -2743,7 +2509,7 @@ function publishStory(){
   const t=document.getElementById("storyText").value.trim(); if(t.length<10){ toast("再多写一点吧 🌸","至少10个字",""); return; }
   const anon=document.getElementById("storyAnon").checked;
   const st={id:uid("s"),authorId:DB.currentUserId,name:me().nick,anon,content:t,touches:[],createdAt:now()};
-  DB.stories.unshift(st); debouncedSaveDB(); CW("stories",st);
+  DB.stories.unshift(st); saveDB(); CW("stories",st);
   closeSheet(); renderAware(); toast("故事已留存 ✨","谢谢妳的勇敢，妳会被看见","🤍");
 }
 
@@ -2801,10 +2567,10 @@ function changeAvatar(){
     <div class="emoji-grid">${opts.map(o=>`<span class="bubble" onclick="setAvatar('${o}')">${o}</span>`).join("")}</div>`);
 }
 function pickAvatarImage(){
-  pickImage(256, 140000, (data)=>{ const u=me(); u.avatarImg=data; debouncedSaveDB(); CWuser(u); closeSheet(); renderMe(); toast("头像已更新 🌸","",""); });
+  pickImage(256, 140000, (data)=>{ const u=me(); u.avatarImg=data; saveDB(); CWuser(u); closeSheet(); renderMe(); toast("头像已更新 🌸","",""); });
 }
-function clearAvatarImage(){ const u=me(); u.avatarImg=""; debouncedSaveDB(); CWuser(u); closeSheet(); renderMe(); }
-function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; debouncedSaveDB(); CWuser(u); closeSheet(); renderMe(); }
+function clearAvatarImage(){ const u=me(); u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
+function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
 /* 头像内容：有照片显示照片，否则显示 emoji */
 function avInner(u){ return (u && u.avatarImg) ? `<img src="${u.avatarImg}" alt="">` : (u && u.emoji || "🌸"); }
 function changeBg(){
@@ -2816,15 +2582,15 @@ function changeBg(){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${colors.map(c=>`<div style="height:70px;border-radius:14px;background:${c};cursor:pointer;" onclick="setBg('${c}')"></div>`).join("")}</div>`);
 }
 function bgStyle(bg){ if(!bg) return ""; return /^(data:|http)/.test(bg) ? `background:url(${bg}) center/cover` : `background:${bg}`; }
-function setBg(c){ me().bg=c; debouncedSaveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(c); closeSheet(); toast(c?"背景已更换 🖼️":"已改回默认","",""); }
+function setBg(c){ me().bg=c; saveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(c); closeSheet(); toast(c?"背景已更换 🖼️":"已改回默认","",""); }
 function pickBgImage(){
-  pickImage(1200, 500000, (data)=>{ me().bg=data; debouncedSaveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast("背景已更换 🖼️","",""); });
+  pickImage(1200, 500000, (data)=>{ me().bg=data; saveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast("背景已更换 🖼️","",""); });
 }
 function editSign(){
   openSheet(`<h3>个人签名 ✏️</h3><textarea id="signText" maxlength="40" placeholder="用一句话介绍此刻的妳…">${me().sign||""}</textarea>
     <button class="btn block" style="margin-top:10px;" onclick="saveSign()">保存</button>`);
 }
-function saveSign(){ me().sign=document.getElementById("signText").value.trim(); debouncedSaveDB(); CWuser(me()); closeSheet(); renderMe(); }
+function saveSign(){ me().sign=document.getElementById("signText").value.trim(); saveDB(); CWuser(me()); closeSheet(); renderMe(); }
 function showMyQuestions(){
   const myQ=DB.questions.filter(q=>q.authorId===DB.currentUserId);
   openSheet(`<h3>我发出的问题 💭</h3>${myQ.length?myQ.map(q=>{
@@ -2885,7 +2651,7 @@ function showMyPosts(){
 function hideMine(coll,id){
   const arr= coll==="posts"?DB.posts:DB.questions;
   const o=arr.find(x=>x.id===id); if(!o) return;
-  o.hidden=!o.hidden; debouncedSaveDB();
+  o.hidden=!o.hidden; saveDB();
   if(CLOUD.enabled) cwUpdate(coll,id,{hidden:o.hidden}); else CW(coll,o);
   if(currentScreen==="home") renderHome();
   coll==="posts"?showMyPosts():showMyQuestions();
@@ -2899,7 +2665,7 @@ function delMine(coll,id){
 function confirmDelMine(coll,id){
   if(coll==="posts") DB.posts=DB.posts.filter(x=>x.id!==id);
   else DB.questions=DB.questions.filter(x=>x.id!==id);
-  debouncedSaveDB(); CWdel(coll,id);
+  saveDB(); CWdel(coll,id);
   if(currentScreen==="home") renderHome();
   closeSheet(); toast("已删除 🗑","",""); renderMe();
   setTimeout(()=>{ coll==="posts"?showMyPosts():showMyQuestions(); },50);
@@ -2960,7 +2726,6 @@ function doLogout(){
     location.reload(); return;
   }
   DB.currentUserId=null; saveDB(); closeSheet();
-  if (_notificationUnsub) { _notificationUnsub(); _notificationUnsub = null; }
   document.getElementById("tabbar").classList.remove("show"); go("welcome"); resetWelcome();
 }
 function resetWelcome(){ document.querySelectorAll("#welcomeLines p").forEach(p=>p.classList.remove("fade-seq")); document.getElementById("badgeWrap").classList.remove("show"); playWelcome(); }
@@ -2978,17 +2743,6 @@ function logEvent(type, msg){
   DEV_LOG.push(line); if(DEV_LOG.length>80) DEV_LOG.shift();
   try{ if(DB){ DB.devLog=DEV_LOG.slice(-40); } }catch(e){}
 }
-
-// Debounce function
-function debounce(func, delay) {
-  let timeout;
-  return function(...args) {
-    const context = this;
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func.apply(context, args), delay);
-  };
-}
-
 window.addEventListener("error", e=>{ logEvent("error", (e.message||"未知错误")+" @ "+(e.filename||"").split("/").pop()+":"+(e.lineno||"")); });
 window.addEventListener("unhandledrejection", e=>{ logEvent("error", "Promise: "+(e.reason&&e.reason.message||e.reason)); });
 (function(){ const _ce=console.error.bind(console); console.error=function(){ const msg=[].join.call(arguments," "); if(/realtime|ws event|WEBSOCKET|SOCKET_CONNECTION/i.test(msg)){ logOnce("wsnoise","实时通道未连上(已用轮询兜底，可忽略)"); } else { logEvent("error", msg); } _ce.apply(null,arguments); }; })();
@@ -3065,15 +2819,15 @@ function checkIntegrity(){
   DB.questions.forEach(q=>{ if(!userById(q.authorId)) issues.push("问题"+q.id+"作者缺失"); });
   return issues.length?('⚠️ '+issues.length+' 处：'+issues.slice(0,3).join("；")):"✅ 正常";
 }
-function setAdminPass(){ const v=(document.getElementById("newPass").value||"").trim(); if(v.length<4){ toast("口令至少4位 🔒","",""); return; } adminConfig().pass=v; debouncedSaveDB(); renderAdmin("overview"); toast("口令已更新 🔑","（本机生效）",""); }
-function addAdmin(){ const v=(document.getElementById("extraPass").value||"").trim(); if(!v) return; v.split(",").map(s=>s.trim()).filter(Boolean).forEach(p=>{ if(!adminConfig().extra.includes(p)) adminConfig().extra.push(p); }); debouncedSaveDB(); renderAdmin("overview"); toast("已添加信任口令 🌸","（本机生效）",""); }
+function setAdminPass(){ const v=(document.getElementById("newPass").value||"").trim(); if(v.length<4){ toast("口令至少4位 🔒","",""); return; } adminConfig().pass=v; saveDB(); renderAdmin("overview"); toast("口令已更新 🔑","（本机生效）",""); }
+function addAdmin(){ const v=(document.getElementById("extraPass").value||"").trim(); if(!v) return; v.split(",").map(s=>s.trim()).filter(Boolean).forEach(p=>{ if(!adminConfig().extra.includes(p)) adminConfig().extra.push(p); }); saveDB(); renderAdmin("overview"); toast("已添加信任口令 🌸","（本机生效）",""); }
 function adminLog(){
   if(!DEV_LOG.length) return `<div class="adm-card"><h4>📜 运行日志</h4><div class="adm-row">暂无日志，一切平稳 🌿</div></div>`;
   return `<div class="adm-card"><h4>📜 运行日志（最新在上）<span class="adm-btn" style="float:right;" onclick="clearLog()">清空</span></h4>
     ${DEV_LOG.slice().reverse().map(l=>`<div class="log-line ${l.type}">[${new Date(l.t).toLocaleTimeString()}] ${l.type==="error"?"❌":"ℹ️"} ${l.msg}</div>`).join("")}</div>
     <div class="adm-card"><h4>🧪 自检</h4><button class="adm-btn" onclick="runSelfTest()">运行一次自检</button><div id="selfTestOut" style="margin-top:8px;"></div></div>`;
 }
-function clearLog(){ DEV_LOG.length=0; if(DB) DB.devLog=[]; debouncedSaveDB(); renderAdmin("log"); }
+function clearLog(){ DEV_LOG.length=0; if(DB) DB.devLog=[]; saveDB(); renderAdmin("log"); }
 function runSelfTest(){
   const out=[]; let ok=true;
   try{
@@ -3118,7 +2872,7 @@ async function adminLoadAllContent(){
     ]);
     DB.questions=q.data||[]; DB.posts=p.data||[]; DB.stories=s.data||[];
     prefetchAuthors(DB.questions); prefetchAuthors(DB.posts);
-    debouncedSaveDB(); renderAdmin("mod"); toast("已加载 ✅","","");
+    saveDB(); renderAdmin("mod"); toast("已加载 ✅","","");
   }catch(e){ logEvent("error","adminLoad: "+(e.message||e)); toast("加载失败","见运行日志",""); }
 }
 function findContentObj(coll,id){
@@ -3129,7 +2883,7 @@ function findContentObj(coll,id){
   return null;
 }
 function toggleHide(coll,id){
-  const o=findContentObj(coll,id); if(!o) return; o.hidden=!o.hidden; debouncedSaveDB();
+  const o=findContentObj(coll,id); if(!o) return; o.hidden=!o.hidden; saveDB();
   // 用 update 只改 hidden 字段（管理员可隐藏任何人内容；隐藏后不再出现在烦恼屋/派对屋/匹配里）
   if(coll==="comment"){ const p=DB.posts.find(x=>x.id===id.split("|")[0]); CW("posts",p); }
   else if(CLOUD.enabled) cwUpdate(coll,id,{hidden:o.hidden}); else CW(coll,o);
@@ -3141,7 +2895,7 @@ function modDelete(coll,id){
   else if(coll==="questions"){ DB.questions=DB.questions.filter(x=>x.id!==id); CWdel("questions",id); }
   else if(coll==="posts"){ DB.posts=DB.posts.filter(x=>x.id!==id); CWdel("posts",id); }
   else if(coll==="stories"){ DB.stories=DB.stories.filter(x=>x.id!==id); CWdel("stories",id); }
-  debouncedSaveDB(); logEvent("info","审核删除 "+coll); renderAdmin("mod"); refreshCurrentFeeds();
+  saveDB(); logEvent("info","审核删除 "+coll); renderAdmin("mod"); refreshCurrentFeeds();
 }
 function refreshCurrentFeeds(){ if(currentScreen==="home") renderHome(); if(currentScreen==="aware") renderAware(); }
 function escapeHtml(s){ return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
@@ -3166,7 +2920,7 @@ function exportData(){
   toast("已导出 ⬇️","",""); logEvent("info","导出数据");
 }
 function importData(){
-  try{ const d=JSON.parse(document.getElementById("importBox").value); DB=d; debouncedSaveDB(); userCache.clear(); toast("导入成功 ✅","已覆盖当前数据",""); renderAdmin("overview"); }
+  try{ const d=JSON.parse(document.getElementById("importBox").value); DB=d; saveDB(); toast("导入成功 ✅","已覆盖当前数据",""); renderAdmin("overview"); }
   catch(e){ toast("JSON 解析失败 ❌",e.message,""); logEvent("error","导入失败:"+e.message); }
 }
 function adminReset(){
@@ -3237,7 +2991,6 @@ function boot(){
   } else {
     go("welcome"); playWelcome();
   }
-}
 }
 window.addEventListener("hashchange", ()=>{ if(checkAdminHash()) openAdminGate(); });
 boot();
