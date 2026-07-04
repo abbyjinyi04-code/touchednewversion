@@ -672,7 +672,24 @@ const CLOUDBASE_REGION = "ap-shanghai";   // 若环境在广州填 ap-guangzhou�
 const DB_KEY = "touched_db_v1";
 let DB = null;
 
-function saveDB(){ localStorage.setItem(DB_KEY, JSON.stringify(DB)); }
+function saveDB(){
+  try{ localStorage.setItem(DB_KEY, JSON.stringify(DB)); }
+  catch(e){
+    // 本地缓存配额溢出（大量配图帖会撑爆 localStorage ~5MB）——存一份「不含大图」的精简版，
+    // 图片仍在内存里正常显示、也已写入云端；刷新后由云端补回。绝不让保存抛错卡住发帖等操作。
+    try{
+      const slim=JSON.parse(JSON.stringify(DB));
+      const big=s=>typeof s==="string"&&s.length>3000;
+      const stripImgs=o=>{ if(!o)return; if(big(o.image))o.image=null; if(Array.isArray(o.images))o.images=o.images.map(x=>big(x)?null:x); };
+      (slim.posts||[]).forEach(stripImgs);
+      (slim.stories||[]).forEach(stripImgs);
+      (slim.questions||[]).forEach(stripImgs);
+      (slim.users||[]).forEach(u=>{ if(big(u.avatarImg))u.avatarImg=null; if(big(u.bgImg))u.bgImg=null; });
+      localStorage.setItem(DB_KEY, JSON.stringify(slim));
+      try{ logOnce("quota","本地缓存已满：已精简保存，图片改由云端加载（不影响发帖/使用）"); }catch(_){}
+    }catch(e2){ try{ logOnce("quota2","本地缓存写入失败（已忽略，不影响使用）:"+(e2.message||e2)); }catch(_){} }
+  }
+}
 function loadDB(){
   const raw = localStorage.getItem(DB_KEY);
   if(raw){ try{ DB = JSON.parse(raw); }catch(e){ DB=null; } }
@@ -1629,17 +1646,20 @@ function renderComposePreview(){
 function pickPostImage(){
   const remaining=MAX_POST_IMGS-composeImgs.length;
   if(remaining<=0){ toast("最多 "+MAX_POST_IMGS+" 张哦 🌸","",""); return; }
-  // 相册可一次多选，逐张压好即刻显示
-  pickImagesMulti(1000, 450000, remaining,
+  // 相册可一次多选，逐张压好即刻显示（多图各自压得更小，减轻流量与本地缓存压力）
+  pickImagesMulti(900, 300000, remaining,
     (data)=>{ if(composeImgs.length<MAX_POST_IMGS){ composeImgs.push(data); renderComposePreview(); } },
     ()=>{ toast("图片已添加 🌷","","") });
 }
 function removePostImage(i){ composeImgs.splice(i,1); renderComposePreview(); }
 function publishPost(){
-  const t=document.getElementById("postText").value.trim();
+  const el=document.getElementById("postText"); const t=el?el.value.trim():"";
   if(!t && !composeImgs.length){ toast("写点什么或配张图再发吧🌷","",""); return; }
   const post={id:uid("p"),authorId:DB.currentUserId,text:t,images:composeImgs.slice(),image:null,likes:[],comments:[],saved:[],createdAt:now()};
-  DB.posts.unshift(post); saveDB(); CW("posts",post); composeImgs=[];
+  DB.posts.unshift(post);
+  try{ saveDB(); }catch(e){ try{logEvent("error","发帖saveDB:"+(e.message||e));}catch(_){} } // saveDB 已内置兜底，这里再兜一层，确保后续一定执行
+  try{ CW("posts",post); }catch(e){ try{logEvent("error","发帖上云:"+(e.message||e));}catch(_){} }
+  composeImgs=[];
   closeSheet(); renderParty(); toast("发布成功 🎉","妳的小世界又热闹了一点","");
 }
 /* 兼容旧字段：统一取图片数组 */
