@@ -238,6 +238,16 @@ label{display:block;font-size:14px;font-weight:600;margin:16px 0 8px;}
 .post{background:#fff;border:1.5px solid var(--line);border-radius:20px;padding:16px;margin:10px 4px;box-shadow:var(--shadow-sm);}
 .post-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
 .post-img{width:100%;border-radius:14px;margin:8px 0;display:block;}
+/* 帖子图片：单图不占满、克制；多图九宫格 */
+.post-imgs{display:grid;gap:6px;margin:8px 0;}
+.post-imgs img{width:100%;border-radius:12px;display:block;cursor:pointer;object-fit:cover;}
+.post-imgs.n1{grid-template-columns:1fr;}
+.post-imgs.n1 img{max-height:46vh;object-fit:cover;}
+.post-imgs.n2{grid-template-columns:1fr 1fr;}
+.post-imgs.n3{grid-template-columns:1fr 1fr 1fr;}
+.post-imgs.n2 img,.post-imgs.n3 img{aspect-ratio:1/1;}
+#composePreview.post-imgs img{aspect-ratio:1/1;}
+#composePreview{grid-template-columns:repeat(3,1fr);}
 .post-actions{display:flex;gap:18px;margin-top:10px;font-size:13.5px;color:var(--ink-soft);}
 .post-actions span{cursor:pointer;}
 .post-actions span.on{color:var(--rose);font-weight:600;}
@@ -850,9 +860,10 @@ function startWatch(name, queryFn, onChange){
   try{
     queryFn().watch({
       onChange:()=>{ if(_watchInit[name]) onChange(); else _watchInit[name]=true; },   // 跳过首次（初始已 fetch）
-      onError:e=>logEvent("error","watch "+name+": "+(e.message||e))
+      // 实时监听(WebSocket)在部分网络连不上很正常——不刷屏日志，数据靠轮询兜底
+      onError:e=>logOnce("watch_"+name,"实时监听 "+name+" 未连上(已用轮询兜底)")
     });
-  }catch(e){ logEvent("error","watch "+name+"启动失败:"+(e.message||e)); }
+  }catch(e){ logOnce("watchstart_"+name,"watch "+name+"启动失败:"+(e.message||e)); }
 }
 function rerenderCurrent(){
   try{
@@ -1252,14 +1263,14 @@ function updateProfNext(){
   const back=document.getElementById("profBack"); if(back) back.style.display = (editSingle||profStepIdx>0)?"block":"none";
 }
 document.addEventListener("input",e=>{ if(e.target.id==="pf_input") updateProfNext(); });
-function profPrev(){ if(editSingle){ editSingle=false; editProfileMenu(); return; } if(profStepIdx>0){ syncCurrentStep(); profStepIdx--; renderProfStep(); } }
+function profPrev(){ if(editSingle){ editSingle=false; navTo("me"); editProfileMenu(); return; } if(profStepIdx>0){ syncCurrentStep(); profStepIdx--; renderProfStep(); } }
 function skipOptional(){ profNext(true); }
 let editSingle=false;
 function profNext(skip){
   if(!skip){ syncCurrentStep(); if(!stepValid()){ updateProfNext(); return; } }
-  if(editSingle){   // 单项编辑：保存这一项就返回档案菜单
+  if(editSingle){   // 单项编辑：保存这一项就回个人主页 + 档案菜单（不进入全流程）
     const u=me(); if(u){ Object.assign(u, profDraft); saveDB(); CWuser(u); }
-    editSingle=false; toast("已保存 🌸","",""); editProfileMenu(); return;
+    editSingle=false; navTo("me"); toast("已保存 🌸","",""); editProfileMenu(); return;
   }
   if(profStepIdx<PROF_STEPS.length-1){ profStepIdx++; renderProfStep(); }
   else { finishProfile(); }
@@ -1321,30 +1332,37 @@ function switchHomeTab(t){
 function renderHome(){ homeTab==="worry"?renderWorry():renderParty(); }
 
 /* ---- 烦恼屋：一次一张卡片 ---- */
+const _worrySeed=Math.floor(Math.random()*1e9);   // 每次开 App（会话）随机一次，同一会话内稳定
+function seededRand(id){ let h=_worrySeed; const s=String(id); for(let i=0;i<s.length;i++){ h=((h<<5)-h+s.charCodeAt(i))|0; } return (Math.abs(h)%1000)/1000; }
 function nextWorryQuestion(){
+  // 匹配度为主 + 每次登录随机扰动，让首批问题每次都不一样（会话内稳定，不会一直闪）
   return DB.questions.filter(q=> q.authorId!==DB.currentUserId && !q.hidden && !DB.seenQuestions.includes(q.id))
-    .sort((a,b)=>matchScore(b)-matchScore(a))[0];
+    .sort((a,b)=>(matchScore(b)+seededRand(b.id)*25)-(matchScore(a)+seededRand(a.id)*25))[0];
 }
+let _shownWorryId=null;
 function renderWorry(){
   const body=document.getElementById("homeBody");
   const q=nextWorryQuestion();
   if(!q){
-    body.innerHTML=`<div class="empty">🌿 暂时没有新的烦恼啦<br>不如去发起一个属于妳的问题？<br><br><button class="btn" onclick="startAsk()">＋ 发出我的问题</button></div>`;
+    if(_shownWorryId==="__empty__" && body.querySelector(".empty")) return;   // 已是空态就不重渲染，避免闪
+    _shownWorryId="__empty__";
+    body.innerHTML=`<div style="display:flex;justify-content:flex-end;margin-bottom:2px;"><button class="btn sm" onclick="startAsk()">＋ 发问</button></div><div class="empty">🌿 暂时没有新的烦恼啦<br>不如去发起一个属于妳的问题？<br><br><button class="btn" onclick="startAsk()">＋ 发出我的问题</button></div>`;
     return;
   }
+  if(_shownWorryId===q.id && document.getElementById("qcard")) return;   // 同一张卡不重渲染，避免轮询导致一闪一闪
+  _shownWorryId=q.id;
   markBrowsed(q.id);   // 记录浏览过的烦恼，个人主页可随时回看
   const a=userById(q.authorId)||{nick:"姐妹",emoji:"🌸",age:"",country:"",region:""};
   const reg={ice:["ice","🧊 冰川区"],warm:["warm","🌤 微暖区"],hot:["hot","🔥 急热区"]}[q.region];
   body.innerHTML=`
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-      ${(DB.skipped&&DB.skipped.length)?`<button class="btn ghost sm" onclick="showSkipped()">↩️ 回看跳过 (${DB.skipped.length})</button>`:`<span></span>`}
+    <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:2px;">
       <button class="btn sm" onclick="startAsk()">＋ 发问</button></div>
     <div class="qcard" id="qcard">
       <div>
         <span class="tag ${reg[0]}">${reg[1]}</span>
         <span class="tag dom">🏷️ ${q.domain}</span>
       </div>
-      <div class="qcontent">${q.content}</div>
+      <div class="qcontent">${escapeHtml(q.content)}</div>
       <div class="qmeta"><span style="cursor:pointer;" onclick="viewUser('${q.authorId}')">${a.emoji} ${a.nick} · ${a.age}岁 · ${a.country}${a.region?(" "+a.region):""}</span>${q.createdAt?` · ${fmtTime(q.createdAt)}`:""}</div>
       <div class="qactions">
         <button class="btn ghost" onclick="skipQuestion('${q.id}')">跳过 →</button>
@@ -1454,7 +1472,7 @@ function renderParty(){
       <div class="post-head"><div class="avatar" style="width:38px;height:38px;font-size:18px;cursor:pointer;" onclick="viewUser('${p.authorId}')">${avInner(a)}</div>
         <div><div class="li-title" style="cursor:pointer;" onclick="viewUser('${p.authorId}')">${a.nick}</div><div class="li-sub">${[a.region||a.country||"", fmtTime(p.createdAt)].filter(Boolean).join(" · ")}</div></div></div>
       <div>${escapeHtml(p.text)}</div>
-      ${p.image?`<img class="post-img" src="${p.image}">`:""}
+      ${postImagesHTML(p)}
       <div class="post-actions">
         <span class="${liked?"on":""}" onclick="toggleLike('${p.id}')">${liked?"❤️":"🤍"} ${p.likes.length}</span>
         <span onclick="openComments('${p.id}')">💬 ${p.comments.length}</span>
@@ -1558,27 +1576,35 @@ function compressDataURL(dataURL, maxDim, maxChars, cb){
   img.src=dataURL;
 }
 
-let composeImg=null;
+let composeImgs=[];
 function openComposePost(){
-  composeImg=null;
+  composeImgs=[];
   openSheet(`<h3>发布动态 🎉</h3><textarea id="postText" placeholder="分享此刻的心情或生活…"></textarea>
-    <div id="composePreview"></div>
-    <button class="btn ghost block" style="margin-top:10px;" onclick="pickPostImage()">📷 从相册选择图片</button>
+    <div id="composePreview" class="post-imgs" style="margin-top:10px;"></div>
+    <button class="btn ghost block" id="addImgBtn" style="margin-top:10px;" onclick="pickPostImage()">📷 添加图片（最多3张）</button>
     <button class="btn block" style="margin-top:10px;" onclick="publishPost()">发布</button>`);
 }
-function pickPostImage(){
-  pickImage(1000, 500000, (data)=>{ composeImg=data; const pv=document.getElementById("composePreview");
-    if(pv) pv.innerHTML=`<div style="position:relative;margin-top:10px;"><img class="post-img" src="${data}" style="margin:0;"><span onclick="removePostImage()" style="position:absolute;top:8px;right:8px;background:rgba(61,43,53,.6);color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer;">✕</span></div>`;
-  });
+function renderComposePreview(){
+  const pv=document.getElementById("composePreview"); if(!pv) return;
+  pv.innerHTML=composeImgs.map((d,i)=>`<div style="position:relative;"><img src="${d}"><span onclick="removePostImage(${i})" style="position:absolute;top:4px;right:4px;background:rgba(61,43,53,.6);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;">✕</span></div>`).join("");
+  const btn=document.getElementById("addImgBtn"); if(btn){ btn.style.display=composeImgs.length>=3?"none":"block"; btn.textContent="📷 再加一张（"+composeImgs.length+"/3）"; }
 }
-function removePostImage(){ composeImg=null; const pv=document.getElementById("composePreview"); if(pv) pv.innerHTML=""; }
+function pickPostImage(){
+  if(composeImgs.length>=3){ toast("最多 3 张哦 🌸","",""); return; }
+  pickImage(1000, 450000, (data)=>{ composeImgs.push(data); renderComposePreview(); });
+}
+function removePostImage(i){ composeImgs.splice(i,1); renderComposePreview(); }
 function publishPost(){
   const t=document.getElementById("postText").value.trim();
-  if(!t && !composeImg){ toast("写点什么或配张图再发吧🌷","",""); return; }
-  const post={id:uid("p"),authorId:DB.currentUserId,text:t,image:composeImg||null,likes:[],comments:[],saved:[],createdAt:now()};
-  DB.posts.unshift(post); saveDB(); CW("posts",post); composeImg=null;
+  if(!t && !composeImgs.length){ toast("写点什么或配张图再发吧🌷","",""); return; }
+  const post={id:uid("p"),authorId:DB.currentUserId,text:t,images:composeImgs.slice(),image:null,likes:[],comments:[],saved:[],createdAt:now()};
+  DB.posts.unshift(post); saveDB(); CW("posts",post); composeImgs=[];
   closeSheet(); renderParty(); toast("发布成功 🎉","妳的小世界又热闹了一点","");
 }
+/* 兼容旧字段：统一取图片数组 */
+function postImages(p){ if(p.images&&p.images.length) return p.images; if(p.image) return [p.image]; return []; }
+function postImagesHTML(p){ const imgs=postImages(p); if(!imgs.length) return ""; return `<div class="post-imgs n${imgs.length}">${imgs.map(u=>`<img src="${u}" onclick="viewImage('${u.replace(/'/g,"")}')">`).join("")}</div>`; }
+function viewImage(src){ openSheet(`<div style="text-align:center;"><img src="${src}" style="max-width:100%;max-height:78vh;border-radius:14px;"></div>`, true); }
 
 /* ========== 7. 发问流程（五步） ========== */
 const ASK_DOMAINS=["职业","情感","心理","学业","创业","兴趣","人际","其她"];
@@ -1661,26 +1687,22 @@ function matchScore(q, candidate){
   const u = candidate || me();
   const a = userById(q.authorId);
   if(!u||!a) return 0;
+  // 防御：档案未加载完整/精简用户可能缺字段，统一兜底空数组，避免 .filter/.includes 崩溃导致烦恼屋空白
+  const uSkills=u.skills||[], uExp=u.exp||[], uHob=u.hobbies||[];
+  const aExp=a.exp||[], aHob=a.hobbies||[];
   let s=0;
-  // 领域/需求契合：发问领域 vs 我的擅长领域
   const domainNeedMap={职业:"职场晋升",情感:"情感陪伴",心理:"心理支持",学业:"语言学习",创业:"创业经验",人际:"情感陪伴",兴趣:"教育经验"};
-  if(u.skills && u.skills.includes(domainNeedMap[q.domain])) s+=25;
-  // 相似经历
-  if(a.exp && u.exp){ const common=a.exp.filter(x=>u.exp.includes(x)).length; s+=common*10; }
-  // 处境契合
-  if(a.phase===u.phase) s+=6;
-  // MBTI 兼容（同首字母或互补N/F）
+  if(uSkills.includes(domainNeedMap[q.domain])) s+=25;
+  s += aExp.filter(x=>uExp.includes(x)).length*10;
+  if(a.phase && a.phase===u.phase) s+=6;
   if(a.mbti && u.mbti){ if(a.mbti[0]!==u.mbti[0]) s+=4; if(a.mbti.includes("F")&&u.mbti.includes("F")) s+=4; }
-  // 地理距离
   if(a.region && u.region && a.region===u.region) s+=8;
-  else if(a.country===u.country) s+=3;
-  // 共同爱好
-  if(a.hobbies&&u.hobbies){ s+= a.hobbies.filter(x=>u.hobbies.includes(x)).length*3; }
-  // 优先级加权（权重最高）
+  else if(a.country && a.country===u.country) s+=3;
+  s += aHob.filter(x=>uHob.includes(x)).length*3;
   (q.priority||[]).forEach(p=>{
-    if(p==="距离近优先" && a.region===u.region) s+=30;
-    if(p==="专业背景优先" && u.skills.includes(domainNeedMap[q.domain])) s+=30;
-    if(p==="相似经历优先" && a.exp.filter(x=>u.exp.includes(x)).length>0) s+=30;
+    if(p==="距离近优先" && a.region && a.region===u.region) s+=30;
+    if(p==="专业背景优先" && uSkills.includes(domainNeedMap[q.domain])) s+=30;
+    if(p==="相似经历优先" && aExp.filter(x=>uExp.includes(x)).length>0) s+=30;
     if(p==="沟通舒适优先" && a.mbti&&u.mbti && (a.mbti.includes("F")===u.mbti.includes("F"))) s+=20;
     if(p==="快速响应优先" && (u.time==="较多时间"||u.time==="每周固定")) s+=20;
   });
@@ -2581,7 +2603,7 @@ async function viewUser(id){
 }
 function showMyPosts(){
   const myP=DB.posts.filter(p=>p.authorId===DB.currentUserId);
-  openSheet(`<h3>我的帖子 🎉</h3>${myP.length?myP.map(p=>`<div class="card" style="margin:10px 0;">${escapeHtml(p.text)}${p.image?`<img class="post-img" src="${p.image}">`:""}<div class="li-sub" style="margin-top:6px;">❤️ ${(p.likes||[]).length} · 💬 ${(p.comments||[]).length}${p.hidden?" · 🙈已隐藏":""}</div>
+  openSheet(`<h3>我的帖子 🎉</h3>${myP.length?myP.map(p=>`<div class="card" style="margin:10px 0;">${escapeHtml(p.text)}${postImagesHTML(p)}<div class="li-sub" style="margin-top:6px;">❤️ ${(p.likes||[]).length} · 💬 ${(p.comments||[]).length}${p.hidden?" · 🙈已隐藏":""}</div>
     <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn ghost sm" onclick="hideMine('posts','${p.id}')">${p.hidden?"👁 取消隐藏":"🙈 隐藏"}</button><button class="btn ghost sm" style="color:#D2615E;" onclick="delMine('posts','${p.id}')">🗑 删除</button></div></div>`).join(""):'<p class="empty">还没有发帖</p>'}`);
 }
 /* 删除/隐藏自己发的帖子或问题 */
@@ -2644,7 +2666,8 @@ function editProfileMenu(){
   closeSheet();
   const u=me()||{};
   openSheet(`<h3>编辑档案 📋</h3><p class="field-hint">点任意一项，只改那一项，改完即存 🌸</p>
-    ${PROF_FIELDS.map(f=>`<div class="menu-item" style="margin:8px 0;" onclick="editOneField(${f.i})"><span>${f.label}</span><span class="muted" style="font-weight:400;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((f.get(u)||"未填")+"")} ›</span></div>`).join("")}`);
+    ${PROF_FIELDS.map(f=>`<div class="menu-item" style="margin:8px 0;" onclick="editOneField(${f.i})"><span>${f.label}</span><span class="muted" style="font-weight:400;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((f.get(u)||"未填")+"")} ›</span></div>`).join("")}
+    <button class="btn block" style="margin-top:12px;" onclick="closeSheet();navTo('me')">✓ 完成，退出编辑</button>`);
 }
 function editOneField(idx){ closeSheet(); syncProfileToDraft(); editSingle=true; profStepIdx=idx; go("profile"); renderProfStep(); }
 function syncProfileToDraft(){ const u=me(); profDraft={nick:u.nick,age:u.age,country:u.country,region:u.region,status:u.status,phase:u.phase,needs:[...(u.needs||[])],purpose:u.purpose,time:u.time,hobbies:[...(u.hobbies||[])],mbti:u.mbti,skills:[...(u.skills||[])],traits:[...(u.traits||[])],exp:[...(u.exp||[])]}; }
@@ -2681,7 +2704,7 @@ function logEvent(type, msg){
 }
 window.addEventListener("error", e=>{ logEvent("error", (e.message||"未知错误")+" @ "+(e.filename||"").split("/").pop()+":"+(e.lineno||"")); });
 window.addEventListener("unhandledrejection", e=>{ logEvent("error", "Promise: "+(e.reason&&e.reason.message||e.reason)); });
-(function(){ const _ce=console.error.bind(console); console.error=function(){ logEvent("error", [].join.call(arguments," ")); _ce.apply(null,arguments); }; })();
+(function(){ const _ce=console.error.bind(console); console.error=function(){ const msg=[].join.call(arguments," "); if(/realtime|ws event|WEBSOCKET|SOCKET_CONNECTION/i.test(msg)){ logOnce("wsnoise","实时通道未连上(已用轮询兜底，可忽略)"); } else { logEvent("error", msg); } _ce.apply(null,arguments); }; })();
 
 function adminConfig(){ if(!DB.admin) DB.admin={pass:"touched-admin", extra:[]}; return DB.admin; }
 let adminUnlocked=false;
@@ -2787,7 +2810,7 @@ function adminMod(){
   const items=allContent().filter(i=> modFilter==="all"?true: modFilter==="hidden"?i.hidden: i.kind===modFilter);
   const filters=[["all","全部"],["问题","问题"],["帖子","帖子"],["评论","评论"],["故事","故事"],["hidden","已隐藏"]];
   let html=`<div class="adm-card"><h4>🛡️ 内容审核（${allContent().length} 条）</h4>
-    ${CLOUD.enabled?`<button class="adm-btn" onclick="adminLoadAllContent()">🔄 从云端加载更多内容</button><div class="adm-row" style="font-size:11px;">云端模式下「隐藏」对全员即时生效；「删除」仅能删自己创建的（删别人请在 CloudBase 控制台操作）。</div>`:""}
+    ${CLOUD.enabled?`<button class="adm-btn" onclick="adminLoadAllContent()">🔄 加载全部内容（含旧废帖）</button><div class="adm-row" style="font-size:11px;">「隐藏」对全员即时生效、且不会再被匹配到——清理旧废帖/废问用它最省事。「删除」仅能删自己创建的（彻底删别人的请在 CloudBase 控制台）。</div>`:""}
     <div class="adm-tabs">${filters.map(f=>`<span class="adm-tab ${modFilter===f[0]?"on":""}" onclick="setModFilter('${f[0]}')">${f[1]}</span>`).join("")}</div>
     ${items.length?items.map(i=>`<div class="adm-row ${i.hidden?"hidden-row":""}">
       <div class="meta">${i.kind} · ${i.who} ${i.hidden?"· 已隐藏":""}</div>${escapeHtml(i.text)}
@@ -2802,9 +2825,9 @@ async function adminLoadAllContent(){
   toast("加载中…","从云端拉取内容","");
   try{
     const [q,p,s]=await Promise.all([
-      CLOUD.db.collection("questions").orderBy("createdAt","desc").limit(200).get(),
-      CLOUD.db.collection("posts").orderBy("createdAt","desc").limit(200).get(),
-      CLOUD.db.collection("stories").orderBy("createdAt","desc").limit(200).get()
+      CLOUD.db.collection("questions").orderBy("createdAt","desc").limit(500).get(),
+      CLOUD.db.collection("posts").orderBy("createdAt","desc").limit(500).get(),
+      CLOUD.db.collection("stories").orderBy("createdAt","desc").limit(500).get()
     ]);
     DB.questions=q.data||[]; DB.posts=p.data||[]; DB.stories=s.data||[];
     prefetchAuthors(DB.questions); prefetchAuthors(DB.posts);
@@ -2820,10 +2843,12 @@ function findContentObj(coll,id){
 }
 function toggleHide(coll,id){
   const o=findContentObj(coll,id); if(!o) return; o.hidden=!o.hidden; saveDB();
+  // 用 update 只改 hidden 字段（管理员可隐藏任何人内容；隐藏后不再出现在烦恼屋/派对屋/匹配里）
   if(coll==="comment"){ const p=DB.posts.find(x=>x.id===id.split("|")[0]); CW("posts",p); }
-  else CW(coll,o);
-  logEvent("info","审核："+(o.hidden?"隐藏":"恢复")+" "+coll); renderAdmin("mod"); refreshCurrentFeeds();
+  else if(CLOUD.enabled) cwUpdate(coll,id,{hidden:o.hidden}); else CW(coll,o);
+  logEvent("info","审核："+(o.hidden?"隐藏":"恢复")+" "+coll); renderAdmin("mod"); refreshCurrentFeeds(); nextWorryResetIfHidden(id);
 }
+function nextWorryResetIfHidden(id){ if(_shownWorryId===id){ _shownWorryId=null; if(currentScreen==="home"&&homeTab==="worry") renderWorry(); } }
 function modDelete(coll,id){
   if(coll==="comment"){ const [pid,idx]=id.split("|"); const p=DB.posts.find(x=>x.id===pid); if(p){ p.comments.splice(+idx,1); CW("posts",p); } }
   else if(coll==="questions"){ DB.questions=DB.questions.filter(x=>x.id!==id); CWdel("questions",id); }
