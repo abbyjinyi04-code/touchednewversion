@@ -837,7 +837,7 @@ async function fetchRelationships(){
   }catch(e){ logOnce("rel","取关系失败:"+(e.message||e)); }
 }
 async function fetchMe(){ const uid=DB.currentUserId; const t0=Date.now(); try{ const r=await CLOUD.db.collection("users").doc(uid).get(); logEvent("info","取个人资料 "+(Date.now()-t0)+"ms"); const u=r.data&&r.data[0]; if(u){ upsertUser(u); try{saveDB();}catch(e){} rerenderCurrent(); } }catch(e){ logEvent("error","取个人资料失败:"+(e.message||e)); } }
-async function fetchPrivate(){ const uid=DB.currentUserId; try{ const r=await CLOUD.db.collection("private").doc(uid).get(); DB.private=(r.data&&r.data[0])||{}; }catch(e){ DB.private=DB.private||{}; } }
+async function fetchPrivate(){ const uid=DB.currentUserId; try{ const r=await CLOUD.db.collection("private").doc(uid).get(); DB.private=(r.data&&r.data[0])||{}; if(DB.private.browsed && DB.private.browsed.length){ DB.browsed=DB.private.browsed; try{saveDB();}catch(e){} } }catch(e){ DB.private=DB.private||{}; } }
 /* ---- 通知（收到的轻触/评论/赞）---- */
 let _prevNoteCount=null;
 async function fetchNotifications(){
@@ -1475,7 +1475,7 @@ function unskip(id){
   saveDB(); closeSheet(); toast("已放回烦恼屋 🌿","",""); if(currentScreen==="home"&&homeTab==="worry") renderWorry();
 }
 /* ---- 浏览过的烦恼记录（个人主页入口，永不消失，随时回看/链接）---- */
-function markBrowsed(id){ DB.browsed=DB.browsed||[]; const i=DB.browsed.indexOf(id); if(i>=0) DB.browsed.splice(i,1); DB.browsed.unshift(id); if(DB.browsed.length>200) DB.browsed.length=200; saveDB(); }
+function markBrowsed(id){ DB.browsed=DB.browsed||[]; const i=DB.browsed.indexOf(id); if(i>=0) DB.browsed.splice(i,1); DB.browsed.unshift(id); if(DB.browsed.length>200) DB.browsed.length=200; saveDB(); if(CLOUD.enabled && DB.currentUserId) CWprivate({browsed:DB.browsed}); }
 function showBrowsed(){
   const list=(DB.browsed||[]).map(id=>DB.questions.find(q=>q.id===id)).filter(q=>q&&!q.hidden&&q.authorId!==DB.currentUserId);
   openSheet(`<h3>浏览过的烦恼 💭</h3><p class="field-hint">妳看过的每一个烦恼都留在这里，随时可以回来轻触或拉手 🌸</p>
