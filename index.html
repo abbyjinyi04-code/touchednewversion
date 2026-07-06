@@ -705,7 +705,7 @@ function resetDB(){ localStorage.removeItem(DB_KEY); localStorage.removeItem("to
    - 有配置 → onSnapshot 实时把云端数据灌入 DB（读），
      关键写操作通过 CW()/CWuser() 同步到云端（写）
    ========================================================= */
-const CLOUD = { enabled:false, app:null, auth:null, db:null, cmd:null, ready:false, started:false, authBusy:false };
+const CLOUD = { enabled:false, app:null, auth:null, db:null, cmd:null, ready:false, started:false, authBusy:false, adminChecked:false, isAdmin:false, adminInfo:null };
 
 function cloudConfigured(){
   return typeof CLOUDBASE_ENV!=="undefined" && CLOUDBASE_ENV && !/^PASTE/.test(CLOUDBASE_ENV);
@@ -754,6 +754,39 @@ function cwUpdate(coll, id, patch){
   if(!CLOUD.enabled) return;
   try{ CLOUD.db.collection(coll).doc(id).update(plain(patch)).catch(e=>logEvent("error","cwUpdate "+coll+":"+(e.message||e))); }catch(e){ logEvent("error","cwUpdate:"+(e.message||e)); }
 }
+async function checkCloudAdmin(force){
+  if(!CLOUD.enabled || !DB.currentUserId){ CLOUD.isAdmin=false; CLOUD.adminChecked=true; return false; }
+  if(CLOUD.adminChecked && !force) return CLOUD.isAdmin;
+  try{
+    const r=await CLOUD.db.collection("admins").doc(DB.currentUserId).get();
+    const a=r.data&&r.data[0];
+    CLOUD.adminInfo=a||null;
+    CLOUD.isAdmin=!!(a && a.active!==false);
+  }catch(e){
+    CLOUD.adminInfo=null; CLOUD.isAdmin=false;
+    logEvent("error","管理员校验失败（检查 admins 集合规则/UID）:"+(e.message||e));
+  }
+  CLOUD.adminChecked=true;
+  return CLOUD.isAdmin;
+}
+function requireCloudAdmin(action){
+  if(!CLOUD.enabled) return true; // 本地预览只做调试，不代表线上权限
+  if(CLOUD.isAdmin) return true;
+  toast("需要云端管理员权限 🔒", action||"请确认当前账号已加入 admins/{uid}", "");
+  return false;
+}
+async function adminUpdateDoc(coll,id,patch){
+  if(CLOUD.enabled && !(await checkCloudAdmin())) throw new Error("not-admin");
+  if(CLOUD.enabled) return CLOUD.db.collection(coll).doc(id).update(plain(patch));
+  const o=findContentObj(coll,id); if(o) Object.assign(o, patch);
+}
+async function adminDeleteDoc(coll,id){
+  if(CLOUD.enabled && !(await checkCloudAdmin())) throw new Error("not-admin");
+  if(CLOUD.enabled) return CLOUD.db.collection(coll).doc(id).remove();
+  if(coll==="questions") DB.questions=DB.questions.filter(x=>x.id!==id);
+  else if(coll==="posts") DB.posts=DB.posts.filter(x=>x.id!==id);
+  else if(coll==="stories") DB.stories=DB.stories.filter(x=>x.id!==id);
+}
 /* 同一错误只记一次，避免轮询刷屏日志 */
 const _loggedOnce={};
 function logOnce(key, msg){ if(_loggedOnce[key]===msg) return; _loggedOnce[key]=msg; logEvent("error", msg); }
@@ -766,7 +799,7 @@ function cwArrPull(coll, id, field, value){
   if(!CLOUD.enabled) return;
   try{ const u={}; u[field]=CLOUD.cmd.pull(value); CLOUD.db.collection(coll).doc(id).update(u).catch(e=>logEvent("error","arrPull "+coll+":"+(e.message||e))); }catch(e){ logEvent("error","arrPull:"+(e.message||e)); }
 }
-function CWmeta(){}   // 管理员口令仅存本地，不上云
+function CWmeta(){}   // 管理员授权走 CloudBase admins/{uid}；本地口令只用于离线调试
 /* 用户缓存：按需懒加载她人公开档案 */
 const _userFetching={};
 function upsertUser(u){ if(!u||!u.id) return; const i=DB.users.findIndex(x=>x.id===u.id); if(i>=0) DB.users[i]={...DB.users[i],...u}; else DB.users.push(u); }
@@ -861,6 +894,13 @@ function cloudStart(){
   if(!CLOUD.enabled || CLOUD.started || !DB.currentUserId) return;
   CLOUD.started = true;
   DB.chats=DB.chats||{};
+  // 云端模式下，若当前用户与上次本地缓存的用户不同，清除旧的本地区浏览/跳过记录
+  const lastUid = localStorage.getItem("touched_last_cloud_uid");
+  if(lastUid !== DB.currentUserId){
+    DB.browsed=[]; DB.seenQuestions=[]; DB.skipped=[];
+    logEvent("info","检测到账号切换或首次云端登录，已清除旧浏览记录");
+  }
+  localStorage.setItem("touched_last_cloud_uid", DB.currentUserId);
   fetchMe(); fetchPrivate(); fetchQuestions(); fetchPosts(); fetchStories(); fetchRelationships(); fetchNotifications();
   const uid=DB.currentUserId;
   // 说明：实时监听(WebSocket)在国内网络上基本连不上，只会刷红字+一条 JSON 解析报错，且数据本就靠下面的轮询兜底。
@@ -1019,7 +1059,7 @@ function toast(title, body, icon){
   const stack = document.getElementById("toast-stack");
   const el = document.createElement("div");
   el.className = "toast";
-  el.innerHTML = `<div class="t-ic">${icon||"🔔"}</div><div class="t-body"><div class="t-title">${title}</div>${body||""}</div>`;
+  el.innerHTML = `<div class="t-ic">${escapeHtml(icon||"🔔")}</div><div class="t-body"><div class="t-title">${escapeHtml(title)}</div>${escapeHtml(body||"")}</div>`;
   stack.appendChild(el);
   setTimeout(()=>{ el.style.transition="opacity .4s,transform .4s"; el.style.opacity="0"; el.style.transform="translateY(-10px)"; setTimeout(()=>el.remove(),400); }, 3600);
 }
@@ -1219,7 +1259,7 @@ function renderProfStep(){
   if(s.optional) html+=`<p class="center field-hint">选填 · 越详细匹配越准确 💫</p>`;
   html+="<div style='margin-top:14px;'>";
   if(s.type==="text"){
-    html+=`<input id="pf_input" placeholder="${s.ph}" value="${profDraft[s.key]||""}">`;
+    html+=`<input id="pf_input" placeholder="${escapeAttr(s.ph)}" value="${escapeAttr(profDraft[s.key]||"")}">`;
   } else if(s.type==="age"){
     html+=`<div class="center" style="font-size:40px;font-weight:700;color:var(--rose);" id="ageShow">${profDraft.age}</div>
       <input type="range" min="14" max="70" value="${profDraft.age}" id="pf_age" oninput="document.getElementById('ageShow').textContent=this.value" style="padding:0;border:none;box-shadow:none;">`;
@@ -1395,7 +1435,7 @@ function renderWorry(){
         <span class="tag dom">🏷️ ${q.domain}</span>
       </div>
       <div class="qcontent">${escapeHtml(q.content)}</div>
-      <div class="qmeta"><span style="cursor:pointer;" onclick="viewUser('${q.authorId}')">${a.emoji} ${a.nick} · ${a.age}岁 · ${a.country}${a.region?(" "+a.region):""}</span>${q.createdAt?` · ${fmtTime(q.createdAt)}`:""}</div>
+      <div class="qmeta"><span style="cursor:pointer;" onclick="viewUser('${escapeAttr(q.authorId)}')">${a.emoji} ${escapeHtml(a.nick)} · ${escapeHtml(a.age)}岁 · ${escapeHtml(a.country)}${a.region?(" "+escapeHtml(a.region)):""}</span>${q.createdAt?` · ${fmtTime(q.createdAt)}`:""}</div>
       <div class="qactions">
         <button class="btn ghost" onclick="skipQuestion('${q.id}')">跳过 →</button>
         <button class="btn lav" onclick="openTouchPanel('${q.id}')">轻触 🤍</button>
@@ -1420,7 +1460,7 @@ function showSkipped(){
       const a=userById(q.authorId)||{nick:"姐妹"};
       const reg={ice:"🧊",warm:"🌤",hot:"🔥"}[q.region]||"";
       return `<div class="card" style="margin:10px 0;">
-        <div class="li-sub">${reg} ${q.domain} · <span style="cursor:pointer;" onclick="viewUser('${q.authorId}')">${a.nick}</span></div>
+        <div class="li-sub">${reg} ${q.domain} · <span style="cursor:pointer;" onclick="viewUser('${escapeAttr(q.authorId)}')">${escapeHtml(a.nick)}</span></div>
         <div style="margin:8px 0;">${escapeHtml(q.content)}</div>
         <div style="display:flex;gap:8px;">
           <button class="btn lav sm" onclick="closeSheet();openTouchPanel('${q.id}')">轻触 🤍</button>
@@ -1444,7 +1484,7 @@ function showBrowsed(){
       const reg={ice:"🧊",warm:"🌤",hot:"🔥"}[q.region]||"";
       const touched=(q.touches||[]).some(t=>t.by===DB.currentUserId);
       return `<div class="card" style="margin:10px 0;">
-        <div class="li-sub">${reg} ${q.domain} · <span style="cursor:pointer;" onclick="viewUser('${q.authorId}')">${a.nick}</span>${q.createdAt?(" · "+fmtTime(q.createdAt)):""}</div>
+        <div class="li-sub">${reg} ${q.domain} · <span style="cursor:pointer;" onclick="viewUser('${escapeAttr(q.authorId)}')">${escapeHtml(a.nick)}</span>${q.createdAt?(" · "+fmtTime(q.createdAt)):""}</div>
         <div style="margin:8px 0;">${escapeHtml(q.content)}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn lav sm" onclick="closeSheet();openTouchPanel('${q.id}')">${touched?"再轻触 🤍":"轻触 🤍"}</button>
@@ -1462,7 +1502,7 @@ function openTouchPanel(qid){
   const q=DB.questions.find(x=>x.id===qid)||{};
   const a=userById(q.authorId)||{nick:"姐妹"};
   openSheet(`<h3>给她一点温暖 🤍</h3>
-    <div class="rm-goal" style="margin-bottom:6px;">💭 <b>${a.nick}的烦恼：</b>${escapeHtml((q.content||"").slice(0,120))}${(q.content||"").length>120?"…":""}</div>
+    <div class="rm-goal" style="margin-bottom:6px;">💭 <b>${escapeHtml(a.nick)}的烦恼：</b>${escapeHtml((q.content||"").slice(0,120))}${(q.content||"").length>120?"…":""}</div>
     <p class="field-hint">只有发问者本人能看到妳的轻触，发送后才算完成哦</p>
     <div class="section-title">暖心贴纸</div>
     <div class="emoji-grid">${TOUCH_STICKERS.map(s=>`<span class="bubble" onclick="pickTouch(this,'${s}')">${s}</span>`).join("")}</div>
@@ -1501,8 +1541,8 @@ function renderParty(){
     const a=userById(p.authorId)||{nick:"姐妹",emoji:"🌸"};
     const liked=p.likes.includes(DB.currentUserId), saved=p.saved.includes(DB.currentUserId);
     html+=`<div class="post">
-      <div class="post-head"><div class="avatar" style="width:38px;height:38px;font-size:18px;cursor:pointer;" onclick="viewUser('${p.authorId}')">${avInner(a)}</div>
-        <div><div class="li-title" style="cursor:pointer;" onclick="viewUser('${p.authorId}')">${a.nick}</div><div class="li-sub">${[a.region||a.country||"", fmtTime(p.createdAt)].filter(Boolean).join(" · ")}</div></div></div>
+      <div class="post-head"><div class="avatar" style="width:38px;height:38px;font-size:18px;cursor:pointer;" onclick="viewUser('${escapeAttr(p.authorId)}')">${avInner(a)}</div>
+      <div><div class="li-title" style="cursor:pointer;" onclick="viewUser('${escapeAttr(p.authorId)}')">${escapeHtml(a.nick)}</div><div class="li-sub">${[a.region||a.country||"", fmtTime(p.createdAt)].filter(Boolean).map(escapeHtml).join(" · ")}</div></div></div>
       <div>${escapeHtml(p.text)}</div>
       ${postImagesHTML(p)}
       <div class="post-actions">
@@ -1517,8 +1557,8 @@ function renderParty(){
 }
 function commentLine(c){
   const nm=c.nick||(userById(c.by)||{}).nick||"姐妹";
-  const rep=c.replyTo?`<span class="muted"> ▸ @${c.replyTo}</span>`:"";
-  return `<div class="comment"><b style="cursor:pointer;" onclick="viewUser('${c.by}')">${nm}</b>${rep}：${escapeHtml(c.text)}</div>`;
+  const rep=c.replyTo?`<span class="muted"> ▸ @${escapeHtml(c.replyTo)}</span>`:"";
+  return `<div class="comment"><b style="cursor:pointer;" onclick="viewUser('${escapeAttr(c.by)}')">${escapeHtml(nm)}</b>${rep}：${escapeHtml(c.text)}</div>`;
 }
 function toggleLike(id){
   const p=DB.posts.find(x=>x.id===id); if(!p) return;
@@ -1543,14 +1583,14 @@ function renderCommentsSheet(id){
     <div style="max-height:46vh;overflow-y:auto;margin-bottom:8px;">
     ${list.length?list.map(c=>{
         const nm=c.nick||(userById(c.by)||{}).nick||"姐妹";
-        const rep=c.replyTo?`<span class="muted"> ▸ @${c.replyTo}</span>`:"";
-        return `<div class="comment"><b style="cursor:pointer;" onclick="viewUser('${c.by}')">${nm}</b>${rep}：${escapeHtml(c.text)} <span class="link" style="margin-left:6px;" onclick="replyComment('${id}','${(nm).replace(/['\\]/g,"")}')">回复</span></div>`;
+        const rep=c.replyTo?`<span class="muted"> ▸ @${escapeHtml(c.replyTo)}</span>`:"";
+        return `<div class="comment"><b style="cursor:pointer;" onclick="viewUser('${escapeAttr(c.by)}')">${escapeHtml(nm)}</b>${rep}：${escapeHtml(c.text)} <span class="link" style="margin-left:6px;" onclick="replyComment('${escapeAttr(id)}','${escapeJsArg(nm)}')">回复</span></div>`;
       }).join(""):'<p class="muted" style="font-size:13px;">还没有评论，来抢个沙发～</p>'}
     </div>
     <div id="cmtReplyHint" class="field-hint"></div>
-    <textarea id="cmtInput" placeholder="${_cmtReplyTo?('回复 @'+_cmtReplyTo+'…'):'温柔地说点什么…'}"></textarea>
-    <button class="btn block" style="margin-top:10px;" onclick="sendComment('${id}')">发送</button>`);
-  if(_cmtReplyTo){ const h=document.getElementById("cmtReplyHint"); if(h) h.innerHTML="↩️ 正在回复 @"+_cmtReplyTo+" · <span class='link' onclick=\"_cmtReplyTo=null;renderCommentsSheet('"+id+"')\">取消</span>"; }
+    <textarea id="cmtInput" placeholder="${escapeAttr(_cmtReplyTo?('回复 @'+_cmtReplyTo+'…'):'温柔地说点什么…')}"></textarea>
+    <button class="btn block" style="margin-top:10px;" onclick="sendComment('${escapeAttr(id)}')">发送</button>`);
+  if(_cmtReplyTo){ const h=document.getElementById("cmtReplyHint"); if(h) h.innerHTML="↩️ 正在回复 @"+escapeHtml(_cmtReplyTo)+" · <span class='link' onclick=\"_cmtReplyTo=null;renderCommentsSheet('"+escapeAttr(id)+"')\">取消</span>"; }
 }
 function replyComment(id, nick){ _cmtReplyTo=nick; renderCommentsSheet(id); setTimeout(()=>{ const t=document.getElementById("cmtInput"); if(t) t.focus(); },60); }
 function sendComment(id){
@@ -1575,7 +1615,10 @@ function pickImage(maxDim, maxChars, cb){
     if(!f){ cleanup(); return; }
     toast("正在处理图片…🌸","","");
     const r=new FileReader();
-    r.onload=()=>{ compressDataURL(r.result, maxDim, maxChars, (out)=>{ cleanup(); cb(out); }); };
+    r.onload=()=>{
+      if(!isSafeImageData(r.result)){ cleanup(); toast("图片格式不支持 🌸","请使用 JPG/PNG/WebP/GIF 图片",""); return; }
+      compressDataURL(r.result, maxDim, maxChars, (out)=>{ cleanup(); if(isSafeImageData(out)) cb(out); else toast("图片处理失败 🌸","换一张试试",""); });
+    };
     r.onerror=()=>{ cleanup(); toast("读取失败 🌸","换一张试试，或先截图再发",""); };
     try{ r.readAsDataURL(f); }catch(e){ cleanup(); toast("读取异常 🌸","换一张试试",""); }
   };
@@ -1644,7 +1687,7 @@ function openComposePost(){
 const MAX_POST_IMGS=4;
 function renderComposePreview(){
   const pv=document.getElementById("composePreview"); if(!pv) return;
-  pv.innerHTML=composeImgs.map((d,i)=>`<div style="position:relative;"><img src="${d}"><span onclick="removePostImage(${i})" style="position:absolute;top:4px;right:4px;background:rgba(61,43,53,.6);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;">✕</span></div>`).join("");
+  pv.innerHTML=composeImgs.map((d,i)=>`<div style="position:relative;"><img src="${escapeAttr(d)}"><span onclick="removePostImage(${i})" style="position:absolute;top:4px;right:4px;background:rgba(61,43,53,.6);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;">✕</span></div>`).join("");
   const btn=document.getElementById("addImgBtn"); if(btn){ btn.style.display=composeImgs.length>=MAX_POST_IMGS?"none":"block"; btn.textContent="📷 再加图片（"+composeImgs.length+"/"+MAX_POST_IMGS+"，可多选）"; }
 }
 function pickPostImage(){
@@ -1668,8 +1711,8 @@ function publishPost(){
 }
 /* 兼容旧字段：统一取图片数组 */
 function postImages(p){ if(p.images&&p.images.length) return p.images; if(p.image) return [p.image]; return []; }
-function postImagesHTML(p){ const imgs=postImages(p); if(!imgs.length) return ""; return `<div class="post-imgs n${imgs.length}">${imgs.map(u=>`<img src="${u}" onclick="viewImage('${u.replace(/'/g,"")}')">`).join("")}</div>`; }
-function viewImage(src){ openSheet(`<div style="text-align:center;"><img src="${src}" style="max-width:100%;max-height:78vh;border-radius:14px;"></div>`, true); }
+function postImagesHTML(p){ const imgs=postImages(p).filter(isSafeImageData); if(!imgs.length) return ""; return `<div class="post-imgs n${imgs.length}">${imgs.map(u=>`<img src="${escapeAttr(u)}" onclick="viewImage('${escapeJsArg(u)}')">`).join("")}</div>`; }
+function viewImage(src){ if(!isSafeImageData(src)) return; openSheet(`<div style="text-align:center;"><img src="${escapeAttr(src)}" style="max-width:100%;max-height:78vh;border-radius:14px;"></div>`, true); }
 
 /* ========== 7. 发问流程（五步） ========== */
 const ASK_DOMAINS=["职业","情感","心理","学业","创业","兴趣","人际","其她"];
@@ -1791,7 +1834,7 @@ function runMatch(q){
   openSheet(`<div class="center">
     <div class="avatar" style="margin:0 auto 10px;width:64px;height:64px;font-size:30px;">${avInner(a)}</div>
     <h3>为妳匹配到一位同频姐妹 ✨</h3>
-    <div class="li-title">${a.nick} · ${a.age}岁 · ${a.region||a.country}</div>
+    <div class="li-title">${escapeHtml(a.nick)} · ${escapeHtml(a.age)}岁 · ${escapeHtml(a.region||a.country)}</div>
     <p class="muted" style="font-size:13px;">${a.sign||""}</p>
    </div>
    <div class="card" style="margin-top:12px;text-align:left;">
@@ -1799,7 +1842,7 @@ function runMatch(q){
      ${reasons.map(r=>`<div style="margin:6px 0;">· ${r}</div>`).join("")}
    </div>
    <p class="field-hint center" style="margin-top:10px;">匹配后将开放 72 小时试聊，试聊后双方确认是否继续 🌷</p>
-   <button class="btn block" style="margin-top:8px;" onclick="startTrialChat('${a.id}','${q.id}')">开始 72 小时试聊 →</button>
+   <button class="btn block" style="margin-top:8px;" onclick="startTrialChat('${escapeAttr(a.id)}','${escapeAttr(q.id)}')">开始 72 小时试聊 →</button>
    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet()">先放进烦恼屋</button>`, true);
 }
 function matchReasons(q,a){
@@ -1827,10 +1870,10 @@ function startTrialChat(otherId,qid){
 /* ---- 试聊：自由确认（无倒计时） ---- */
 function trialActions(rel){
   return `<div class="func-grid">
-    <div class="func-card" onclick="closeSheet();upgradeFromTrial('${rel.id}')"><span class="fc-ic">🤝</span><div class="fc-t">进入正式链接</div><div class="fc-d">约定关系类型</div></div>
-    <div class="func-card" onclick="requestEndTrial('${rel.id}')"><span class="fc-ic">🍃</span><div class="fc-t">结束试聊</div><div class="fc-d">需对方同意</div></div>
-    <div class="func-card" onclick="toCasual('${rel.id}')"><span class="fc-ic">💬</span><div class="fc-t">转为闲聊</div><div class="fc-d">无压力随便聊</div></div>
-    <div class="func-card" onclick="simTrialTimeout('${rel.id}')"><span class="fc-ic">⏰</span><div class="fc-t">模拟超时提醒</div><div class="fc-d">演示·72h未决定</div></div>
+    <div class="func-card" onclick="closeSheet();upgradeFromTrial('${escapeAttr(rel.id)}')"><span class="fc-ic">🤝</span><div class="fc-t">进入正式链接</div><div class="fc-d">约定关系类型</div></div>
+    <div class="func-card" onclick="requestEndTrial('${escapeAttr(rel.id)}')"><span class="fc-ic">🍃</span><div class="fc-t">结束试聊</div><div class="fc-d">需对方同意</div></div>
+    <div class="func-card" onclick="toCasual('${escapeAttr(rel.id)}')"><span class="fc-ic">💬</span><div class="fc-t">转为闲聊</div><div class="fc-d">无压力随便聊</div></div>
+    <div class="func-card" onclick="simTrialTimeout('${escapeAttr(rel.id)}')"><span class="fc-ic">⏰</span><div class="fc-t">模拟超时提醒</div><div class="fc-d">演示·72h未决定</div></div>
   </div>`;
 }
 function upgradeFromTrial(relId){
@@ -1852,26 +1895,26 @@ function requestEndTrial(relId){
   toast("已发出结束试聊的申请 🍃","等待 "+o.nick+" 回应…","");
   setTimeout(()=>{
     openSheet(`<div class="center"><div class="avatar" style="margin:0 auto 8px;width:56px;height:56px;font-size:26px;">${o.emoji}</div>
-      <h3>${o.nick} 收到了妳「结束试聊」的申请</h3></div>
+      <h3>${escapeHtml(o.nick)} 收到了妳「结束试聊」的申请</h3></div>
       <p class="center muted">（演示：选一个对方的回应）</p>
-      <button class="btn block" style="margin-top:12px;" onclick="endTrialAgreed('${relId}')">她同意结束 🍃</button>
-      <button class="btn ghost block" style="margin-top:10px;" onclick="endTrialKeep('${relId}')">她想「暂时保持试聊」</button>`, true);
+      <button class="btn block" style="margin-top:12px;" onclick="endTrialAgreed('${escapeAttr(relId)}')">她同意结束 🍃</button>
+      <button class="btn ghost block" style="margin-top:10px;" onclick="endTrialKeep('${escapeAttr(relId)}')">她想「暂时保持试聊」</button>`, true);
   }, 1400);
 }
 /* 接收方回应「结束试聊」请求 */
 function respondEndTrial(relId){
   const rel=DB.relationships.find(r=>r.id===relId); const o=relName(rel);
-  openSheet(`<h3 class="center">${o.nick} 想结束这段试聊 🍃</h3><p class="center muted">妳怎么想都可以～</p>
-    <button class="btn block" style="margin-top:12px;" onclick="endTrialAgreed('${relId}')">同意结束</button>
-    <button class="btn ghost block" style="margin-top:10px;" onclick="endTrialKeep('${relId}')">想暂时保持试聊</button>`, true);
+  openSheet(`<h3 class="center">${escapeHtml(o.nick)} 想结束这段试聊 🍃</h3><p class="center muted">妳怎么想都可以～</p>
+    <button class="btn block" style="margin-top:12px;" onclick="endTrialAgreed('${escapeAttr(relId)}')">同意结束</button>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="endTrialKeep('${escapeAttr(relId)}')">想暂时保持试聊</button>`, true);
 }
 function endTrialAgreed(relId){
   const rel=DB.relationships.find(r=>r.id===relId);
   rel.endTrialBy=""; saveRel(rel);
   closeSheet();
   openSheet(`<h3 class="center">试聊结束 🍃</h3><p class="center muted">那就到这里啦。要彻底告别，还是留作偶尔说说话的闲聊？</p>
-    <button class="btn block" style="margin-top:12px;" onclick="toCasual('${relId}')">💬 转为闲聊（推荐）</button>
-    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet();endRelationshipById('${relId}')">温柔告别</button>`, true);
+    <button class="btn block" style="margin-top:12px;" onclick="toCasual('${escapeAttr(relId)}')">💬 转为闲聊（推荐）</button>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet();endRelationshipById('${escapeAttr(relId)}')">温柔告别</button>`, true);
 }
 function endTrialKeep(relId){
   const rel=DB.relationships.find(r=>r.id===relId); rel.endTrialBy=""; saveRel(rel);
@@ -1882,9 +1925,9 @@ function endTrialKeep(relId){
 function simTrialTimeout(relId){
   closeSheet();
   openSheet(`<h3 class="center">🌙 温柔提醒</h3><p class="center muted">妳们试聊有一阵子啦，要怎么走下去呢？怎么选都可以～</p>
-    <button class="btn block" style="margin-top:12px;" onclick="closeSheet();upgradeFromTrial('${relId}')">🤝 进入正式链接</button>
-    <button class="btn lav block" style="margin-top:10px;" onclick="toCasual('${relId}')">💬 保持闲聊就好</button>
-    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet();endRelationshipById('${relId}')">🍃 结束聊天</button>`, true);
+    <button class="btn block" style="margin-top:12px;" onclick="closeSheet();upgradeFromTrial('${escapeAttr(relId)}')">🤝 进入正式链接</button>
+    <button class="btn lav block" style="margin-top:10px;" onclick="toCasual('${escapeAttr(relId)}')">💬 保持闲聊就好</button>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet();endRelationshipById('${escapeAttr(relId)}')">🍃 结束聊天</button>`, true);
 }
 function toCasual(relId){
   const rel=DB.relationships.find(r=>r.id===relId);
@@ -1905,8 +1948,8 @@ function endRelationshipById(relId){
 function initiateHand(qid){
   const q=DB.questions.find(x=>x.id===qid); const b=userById(q.authorId);
   openSheet(`<div class="center"><div class="avatar" style="margin:0 auto 8px;width:58px;height:58px;font-size:28px;">${b.emoji}</div>
-    <h3>向 ${b.nick} 拉手 🤝</h3><p class="muted">拉手代表妳想和她建立一段更深的链接。她会收到通知，可以接受或婉拒。</p></div>
-    <button class="btn block" style="margin-top:12px;" onclick="sendHand('${qid}')">确认拉手 🤝</button>
+    <h3>向 ${escapeHtml(b.nick)} 拉手 🤝</h3><p class="muted">拉手代表妳想和她建立一段更深的链接。她会收到通知，可以接受或婉拒。</p></div>
+    <button class="btn block" style="margin-top:12px;" onclick="sendHand('${escapeAttr(qid)}')">确认拉手 🤝</button>
     <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet()">再想想</button>`, true);
 }
 function sendHand(qid){
@@ -1932,9 +1975,9 @@ function simulateHandResponse(otherId, qid){
   const a=userById(otherId);
   // 80% 接受，20% 婉拒（演示固定接受以便走通流程，但保留婉拒入口）
   openSheet(`<div class="center"><div class="avatar" style="margin:0 auto 8px;width:58px;height:58px;font-size:28px;">${a.emoji}</div>
-    <h3>${a.nick} 回应了妳的拉手 💗</h3></div>
+    <h3>${escapeHtml(a.nick)} 回应了妳的拉手 💗</h3></div>
     <p class="center muted">（演示：妳可以体验两种结果）</p>
-    <button class="btn block" style="margin-top:12px;" onclick="handAccepted('${otherId}')">她接受了，开始约定链接 →</button>
+    <button class="btn block" style="margin-top:12px;" onclick="handAccepted('${escapeAttr(otherId)}')">她接受了，开始约定链接 →</button>
     <button class="btn ghost block" style="margin-top:10px;" onclick="handDeclined()">体验「婉拒」</button>`, true);
 }
 function handDeclined(){ closeSheet(); toast("对方暂时没有余力 🍃","没关系，温柔从不强求，妳值得遇见更合适的人","🌙"); }
@@ -1950,7 +1993,7 @@ const PERIODS=["短期目标导向","1-3个月","长期半年以上","随缘"];
 const FREQS=["随时","每周一次","不定期"];
 function renderLinkAgreement(side){
   const a=userById(linkDraft.otherId);
-  const title = side==="A" ? "约定妳们的链接 🤝（妳先填写期望）" : `${a.nick} 想这样和妳链接，妳同意吗？`;
+  const title = side==="A" ? "约定妳们的链接 🤝（妳先填写期望）" : `${escapeHtml(a.nick)} 想这样和妳链接，妳同意吗？`;
   const editable = side==="A";
   let html=`<h3>${title}</h3>`;
   if(linkDraft.round>0) html+=`<p class="field-hint">协商第 ${linkDraft.round+1} 轮 / 共2轮</p>`;
@@ -2011,13 +2054,13 @@ function viewProposal(relId){
   let roleLine="";
   if(p.relType==="mentorship"){
     const meRole = p.proposerRole==="mentor"?"mentee 🌱":"mentor 🌟";
-    roleLine=`<div class="rm-goal">🎓 ${proposer.nick} 想做 ${p.proposerRole==="mentor"?"Mentor 🌟":"Mentee 🌱"}，那么妳是 <b>${meRole}</b></div>`;
+    roleLine=`<div class="rm-goal">🎓 ${escapeHtml(proposer.nick)} 想做 ${p.proposerRole==="mentor"?"Mentor 🌟":"Mentee 🌱"}，那么妳是 <b>${escapeHtml(meRole)}</b></div>`;
   }
   const needGoal = p.relType==="mentorship" && p.proposerRole==="mentor"; // 我是mentee，需要我写目标
   openSheet(`<h3>正式链接邀请 💞</h3>
-    <div class="rm-goal">类型：<b>${typeName}</b>　周期：${p.period}　频率：${p.freq}</div>
+    <div class="rm-goal">类型：<b>${escapeHtml(typeName)}</b>　周期：${escapeHtml(p.period)}　频率：${escapeHtml(p.freq)}</div>
     ${roleLine}
-    ${p.goal?`<div class="rm-goal">🎯 成长目标：${p.goal}</div>`:""}
+    ${p.goal?`<div class="rm-goal">🎯 成长目标：${escapeHtml(p.goal)}</div>`:""}
     ${needGoal?`<div class="section-title">妳作为 mentee 的成长目标</div><textarea id="accGoal" placeholder="写下妳想达成的目标…"></textarea>`:""}
     <div style="display:flex;gap:10px;margin-top:14px;">
       <button class="btn block" onclick="acceptProposal('${relId}')">接受 ✓</button>
@@ -2034,7 +2077,7 @@ function acceptProposal(relId){
   addTemp(20,"建立正式链接");
   const typeName={mentorship:"🎓 Mentorship",buddy:"👯 搭子",company:"🫂 轻陪伴"}[rel.type]||"链接";
   pushSys(rel.id, "🌷 妳们正式建立「"+typeName+"」关系，周期："+rel.period+"，频率："+rel.freq);
-  if(rel.type==="mentorship"){ pushSys(rel.id,"🎓 "+userById(rel.mentorId).nick+" 是 Mentor 🌟，"+userById(rel.menteeId).nick+" 是 Mentee 🌱"); if(rel.goal) pushSys(rel.id,"🎯 成长目标：「"+rel.goal+"」"); }
+  if(rel.type==="mentorship"){ pushSys(rel.id,"🎓 "+((userById(rel.mentorId)||{}).nick||"姐妹")+" 是 Mentor 🌟，"+((userById(rel.menteeId)||{}).nick||"姐妹")+" 是 Mentee 🌱"); if(rel.goal) pushSys(rel.id,"🎯 成长目标：「"+rel.goal+"」"); }
   toast("链接建立成功 🤝","特殊功能都在关系小屋里","🌷"); openRelManage(rel.id);
 }
 function declineProposal(relId){
@@ -2059,7 +2102,7 @@ function renderRoleConfirm(){
       <div class="func-card ${linkDraft.myRole==="mentor"?"":""}" style="${linkDraft.myRole==="mentor"?"border-color:var(--rose);background:#FBE7EC;":""}" onclick="pickRole('mentor')"><span class="fc-ic">🌟</span><div class="fc-t">我是 Mentor</div><div class="fc-d">陪伴 / 引导对方</div></div>
       <div class="func-card" style="${linkDraft.myRole==="mentee"?"border-color:var(--rose);background:#FBE7EC;":""}" onclick="pickRole('mentee')"><span class="fc-ic">🌱</span><div class="fc-t">我是 Mentee</div><div class="fc-d">被陪伴 / 成长中</div></div>
     </div>
-    <p class="field-hint center" style="margin-top:10px;">${linkDraft.myRole?("→ 那么 "+a.nick+" 就是 "+(linkDraft.myRole==="mentor"?"Mentee 🌱":"Mentor 🌟")):"请先选择妳的身份"}</p>
+    <p class="field-hint center" style="margin-top:10px;">${linkDraft.myRole?("→ 那么 "+escapeHtml(a.nick)+" 就是 "+(linkDraft.myRole==="mentor"?"Mentee 🌱":"Mentor 🌟")):"请先选择妳的身份"}</p>
     <button class="btn block" style="margin-top:8px;" ${linkDraft.myRole?"":"disabled"} onclick="confirmRoleNext()">下一步 →</button>`);
 }
 function pickRole(r){ linkDraft.myRole=r; renderRoleConfirm(); }
@@ -2067,10 +2110,10 @@ function confirmRoleNext(){
   const a=userById(linkDraft.otherId);
   // 模拟对方确认身份
   openSheet(`<div class="center"><div class="avatar" style="margin:0 auto 8px;width:56px;height:56px;font-size:26px;">${a.emoji}</div>
-    <h3>等待 ${a.nick} 确认身份…</h3></div>
+    <h3>等待 ${escapeHtml(a.nick)} 确认身份…</h3></div>
     <p class="center muted">妳选择做 <b>${linkDraft.myRole==="mentor"?"Mentor 🌟":"Mentee 🌱"}</b>，
-    系统会请 ${a.nick} 确认做 <b>${linkDraft.myRole==="mentor"?"Mentee 🌱":"Mentor 🌟"}</b>。</p>
-    <button class="btn block" style="margin-top:12px;" onclick="roleConfirmed()">✓ ${a.nick} 已确认</button>
+    系统会请 ${escapeHtml(a.nick)} 确认做 <b>${linkDraft.myRole==="mentor"?"Mentee 🌱":"Mentor 🌟"}</b>。</p>
+    <button class="btn block" style="margin-top:12px;" onclick="roleConfirmed()">✓ ${escapeHtml(a.nick)} 已确认</button>
     <button class="btn ghost block" style="margin-top:10px;" onclick="renderRoleConfirm()">← 重新选择</button>`, true);
 }
 function roleConfirmed(){
@@ -2083,8 +2126,8 @@ function roleConfirmed(){
       <button class="btn block" style="margin-top:10px;" onclick="saveGoalAndFinalize()">确认目标 🎯</button>`);
   } else {
     // 对方是 mentee，模拟其填写目标
-    openSheet(`<h3>等待 mentee 写成长目标 🌱</h3><p class="field-hint">${a.nick} 作为 mentee 正在写下她的成长目标…（演示可代填）</p>
-      <textarea id="goalInput" placeholder="（演示）替 ${a.nick} 写一个成长目标">${linkDraft.goal||""}</textarea>
+    openSheet(`<h3>等待 mentee 写成长目标 🌱</h3><p class="field-hint">${escapeHtml(a.nick)} 作为 mentee 正在写下她的成长目标…（演示可代填）</p>
+      <textarea id="goalInput" placeholder="（演示）替 ${escapeHtml(a.nick)} 写一个成长目标">${linkDraft.goal||""}</textarea>
       <button class="btn block" style="margin-top:10px;" onclick="saveGoalAndFinalize()">确认目标 🎯</button>`);
   }
 }
@@ -2119,15 +2162,15 @@ function finalizeLink(loose){
   const a=userById(linkDraft.otherId);
   pushSys(rel.id, `🌷 妳们正式建立「${typeName}」关系，约定周期：${rel.period}，沟通频率：${rel.freq}`);
   if(rel.type==="mentorship"){
-    const mentorN=userById(rel.mentorId).nick, menteeN=userById(rel.menteeId).nick;
+    const mentorN=(userById(rel.mentorId)||{}).nick||"姐妹", menteeN=(userById(rel.menteeId)||{}).nick||"姐妹";
     pushSys(rel.id, `🎓 身份已确认：${mentorN} 是 Mentor 🌟，${menteeN} 是 Mentee 🌱`);
     if(rel.goal) pushSys(rel.id,"🎯 "+menteeN+" 的成长目标：「"+rel.goal+"」");
   }
   openSheet(`<div class="center"><div style="font-size:40px;">🤝</div><h3>链接建立成功！</h3>
-    <p class="muted">妳和 ${a.nick} 现在是 <b>${typeName}</b></p>
+    <p class="muted">妳和 ${escapeHtml(a.nick)} 现在是 <b>${typeName}</b></p>
     <p class="field-hint">${loose?"先慢慢磨合～":"特殊功能都在「关系小屋」里，系统会在约定节点温柔提醒妳们 🌸"}</p></div>
-    <button class="btn block" style="margin-top:14px;" onclick="closeSheet();openRelManage('${rel.id}')">进入关系小屋 🏡</button>
-    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet();openChat('${rel.id}')">直接去聊天 💬</button>`, true);
+    <button class="btn block" style="margin-top:14px;" onclick="closeSheet();openRelManage('${escapeAttr(rel.id)}')">进入关系小屋 🏡</button>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet();openChat('${escapeAttr(rel.id)}')">直接去聊天 💬</button>`, true);
 }
 
 /* ---- 关系/聊天 数据 ----
@@ -2189,11 +2232,11 @@ function lastLine(r){
 function relItem(r, showManage){
   const o=relName(r); const days=daysSince(r.confirmedAt||r.createdAt);
   const right = r.status==="linked"? "第"+days+"天" : (r.status==="trial"?"试聊中":"闲聊");
-  const onClick = showManage ? `openRelManage('${r.id}')` : `openChat('${r.id}')`;
+  const onClick = showManage ? `openRelManage('${escapeAttr(r.id)}')` : `openChat('${escapeAttr(r.id)}')`;
   return `<div class="list-item" onclick="${onClick}">
     <div class="avatar">${avInner(o)}</div>
-    <div class="li-main"><div class="li-title">${o.nick} <span class="rel-tag">${relShortTag(r)}</span></div>
-    <div class="li-sub">${lastLine(r)}</div></div>
+    <div class="li-main"><div class="li-title">${escapeHtml(o.nick)} <span class="rel-tag">${escapeHtml(relShortTag(r))}</span></div>
+    <div class="li-sub">${escapeHtml(lastLine(r))}</div></div>
     <div style="text-align:right;"><div class="li-sub">${right}</div>${showManage?'<div class="li-sub" style="color:var(--rose);">🏡 小屋</div>':'<div class="li-sub" style="color:var(--rose);">💬 聊天</div>'}</div>
   </div>`;
 }
@@ -2239,14 +2282,14 @@ function renderRelManage(){
   const days=daysSince(r.confirmedAt||r.createdAt);
   let html=`<div class="rm-hero" style="background:${heroBg}">
     <div class="avatar">${avInner(o)}</div>
-    <div class="li-title" style="font-size:17px;">${o.nick}</div>
-    <div class="rel-big">${relShortTag(r)} · 已建立 ${days} 天</div>
+    <div class="li-title" style="font-size:17px;">${escapeHtml(o.nick)}</div>
+    <div class="rel-big">${escapeHtml(relShortTag(r))} · 已建立 ${days} 天</div>
   </div>`;
 
   if(r.type==="mentorship"){
-    const mentorN=userById(r.mentorId).nick, menteeN=userById(r.menteeId).nick;
-    html+=`<div class="rm-goal">🎓 <b>${mentorN}</b> 是 Mentor 🌟　|　<b>${menteeN}</b> 是 Mentee 🌱</div>`;
-    html+=`<div class="rm-goal">🎯 <b>成长目标：</b>${r.goal||"（未填写）"}</div>`;
+    const mentorN=(userById(r.mentorId)||{}).nick||"姐妹", menteeN=(userById(r.menteeId)||{}).nick||"姐妹";
+    html+=`<div class="rm-goal">🎓 <b>${escapeHtml(mentorN)}</b> 是 Mentor 🌟　|　<b>${escapeHtml(menteeN)}</b> 是 Mentee 🌱</div>`;
+    html+=`<div class="rm-goal">🎯 <b>成长目标：</b>${escapeHtml(r.goal||"（未填写）")}</div>`;
     const pendingForMentor = isMentor(r) && r.checkins.some(c=>!c.reply);
     html+=`<div class="func-grid" style="margin-top:12px;">`;
     if(isMentee(r)){
@@ -2279,7 +2322,7 @@ function renderRelManage(){
   }
 
   // 共同底部
-  html+=`<div class="func-card wide" style="margin-top:12px;" onclick="openChat('${r.id}')"><span class="fc-ic">💬</span><div><div class="fc-t">进入聊天</div><div class="fc-d">和 ${o.nick} 说说话</div></div></div>`;
+  html+=`<div class="func-card wide" style="margin-top:12px;" onclick="openChat('${escapeAttr(r.id)}')"><span class="fc-ic">💬</span><div><div class="fc-t">进入聊天</div><div class="fc-d">和 ${escapeHtml(o.nick)} 说说话</div></div></div>`;
   html+=`<div style="display:flex;gap:10px;margin-top:10px;">
     <button class="btn ghost block sm" onclick="togglePause()">${r.paused?"▶️ 恢复关系":"⏸️ 暂停关系"}</button>
     <button class="btn ghost block sm" onclick="endRelationship()">🍃 结束关系</button></div>
@@ -2305,22 +2348,22 @@ function renderChatExtras(){
   const extra=document.getElementById("chatExtra");
   goalBox.innerHTML=""; extra.innerHTML="";
   if(r.status==="linked"){
-    if(r.type==="mentorship") goalBox.innerHTML=`<div class="goal-banner">🎯 <b>成长目标：</b>${r.goal||"（未填写）"}</div>`;
-    extra.innerHTML=`<span class="chip" onclick="openRelManage('${r.id}')">🏡 关系小屋 · 专属功能</span>`;
+    if(r.type==="mentorship") goalBox.innerHTML=`<div class="goal-banner">🎯 <b>成长目标：</b>${escapeHtml(r.goal||"（未填写）")}</div>`;
+    extra.innerHTML=`<span class="chip" onclick="openRelManage('${escapeAttr(r.id)}')">🏡 关系小屋 · 专属功能</span>`;
   } else if(r.status==="trial"){
-    let chips=`<span class="chip" onclick="openTrialPanel('${r.id}')">🌤 试聊中 · 接下来怎么走？</span>`;
-    if(r.proposal && r.proposal.by!==DB.currentUserId) chips=`<span class="chip" style="background:#FBE7EC;border-color:var(--rose);" onclick="viewProposal('${r.id}')">💞 对方邀请正式链接 · 查看</span>`+chips;
-    if(r.endTrialBy && r.endTrialBy!==DB.currentUserId) chips=`<span class="chip" style="background:#FCEFE0;border-color:var(--apri);" onclick="respondEndTrial('${r.id}')">🍃 对方想结束试聊 · 回应</span>`+chips;
+    let chips=`<span class="chip" onclick="openTrialPanel('${escapeAttr(r.id)}')">🌤 试聊中 · 接下来怎么走？</span>`;
+    if(r.proposal && r.proposal.by!==DB.currentUserId) chips=`<span class="chip" style="background:#FBE7EC;border-color:var(--rose);" onclick="viewProposal('${escapeAttr(r.id)}')">💞 对方邀请正式链接 · 查看</span>`+chips;
+    if(r.endTrialBy && r.endTrialBy!==DB.currentUserId) chips=`<span class="chip" style="background:#FCEFE0;border-color:var(--apri);" onclick="respondEndTrial('${escapeAttr(r.id)}')">🍃 对方想结束试聊 · 回应</span>`+chips;
     extra.innerHTML=chips;
   } else if(r.status==="casual"){
-    extra.innerHTML=`<span class="chip" onclick="upgradeFromTrial('${r.id}')">💞 升级为深度链接</span>
+    extra.innerHTML=`<span class="chip" onclick="upgradeFromTrial('${escapeAttr(r.id)}')">💞 升级为深度链接</span>
       <span class="chip" onclick="writeDiary()">📔 感受日记</span>`;
   }
 }
 function openTrialPanel(relId){
   const rel=DB.relationships.find(r=>r.id===relId);
   const o=relName(rel);
-  openSheet(`<h3>试聊中 🌤</h3><p class="field-hint">没有倒计时，妳和 ${o.nick} 可以慢慢决定。怎么选都可以～</p>${trialActions(rel)}`);
+  openSheet(`<h3>试聊中 🌤</h3><p class="field-hint">没有倒计时，妳和 ${escapeHtml(o.nick)} 可以慢慢决定。怎么选都可以～</p>${trialActions(rel)}`);
 }
 function renderMsgs(){
   const box=document.getElementById("chatMsgs");
@@ -2328,10 +2371,10 @@ function renderMsgs(){
   const lastIdx=msgs.length-1;
   box.innerHTML=msgs.map((m,i)=>{
     const fresh = i===lastIdx ? " fresh" : "";   // 只让最新一条淡入，其余不重播，避免整列闪烁
-    if(m.from==="sys") return `<div class="msg sys${fresh}">${m.text}</div>`;
+    if(m.from==="sys") return `<div class="msg sys${fresh}">${escapeHtml(m.text)}</div>`;
     const mine=m.from===DB.currentUserId;
-    const tag = m.kind&&m.kind!=="text" ? `<span class="mtag">${m.kind}</span>`:"";
-    return `<div class="msg ${mine?"me":"you"}${fresh}">${tag}${m.text}</div>`;
+    const tag = m.kind&&m.kind!=="text" ? `<span class="mtag">${escapeHtml(m.kind)}</span>`:"";
+    return `<div class="msg ${mine?"me":"you"}${fresh}">${tag}${escapeHtml(m.text)}</div>`;
   }).join("");
   box.scrollTop=box.scrollHeight;
 }
@@ -2360,7 +2403,7 @@ function openRelMenu(){
   if(r.status==="trial"){ openTrialPanel(r.id); return; }
   // 闲聊
   openSheet(`<h3>闲聊设置 💬</h3>
-    <div class="menu-item" style="margin:10px 0;" onclick="closeSheet();upgradeFromTrial('${r.id}')">💞 升级为深度链接<span>›</span></div>
+    <div class="menu-item" style="margin:10px 0;" onclick="closeSheet();upgradeFromTrial('${escapeAttr(r.id)}')">💞 升级为深度链接<span>›</span></div>
     <div class="menu-item" style="margin:10px 0;" onclick="endRelationship()">🍃 结束这段闲聊<span>›</span></div>
     <p class="field-hint center">闲聊没有压力，想聊就聊，想结束也可以 🌸</p>`);
 }
@@ -2408,11 +2451,11 @@ function submitMenteeCheckin(){
 function viewCheckins(){
   const r=activeRel;
   const list=r.checkins;
-  openSheet(`<h3>mentee 的打卡 📋</h3><p class="field-hint">看看 ${userById(r.menteeId).nick} 的进展，给她一点鼓励～</p>
+  openSheet(`<h3>mentee 的打卡 📋</h3><p class="field-hint">看看 ${escapeHtml((userById(r.menteeId)||{}).nick||"姐妹")} 的进展，给她一点鼓励～</p>
     ${list.length?list.slice().reverse().map(c=>`<div class="card" style="margin:10px 0;">
         <div class="li-sub">${new Date(c.at).toLocaleString()}</div>
         <div style="margin:6px 0;">✅ ${c.text}</div>
-        ${c.reply?`<div class="comment">💛 妳的回应：${c.reply}</div>`:`<div style="display:flex;gap:8px;margin-top:8px;"><input id="rp_${c.id}" placeholder="写句鼓励…" style="flex:1;"><button class="btn sm" onclick="replyCheckin('${c.id}')">鼓励</button></div>`}
+        ${c.reply?`<div class="comment">💛 妳的回应：${c.reply}</div>`:`<div style="display:flex;gap:8px;margin-top:8px;"><input id="rp_${c.id}" placeholder="写句鼓励…" style="flex:1;"><button class="btn sm" onclick="replyCheckin('${escapeAttr(c.id)}')">鼓励</button></div>`}
       </div>`).join(""):'<p class="empty">mentee 还没有打卡</p>'}`);
 }
 function replyCheckin(cid){
@@ -2508,9 +2551,9 @@ function renderAware(){
   stories.forEach(s=>{
     const touched=s.touches.includes(DB.currentUserId);
     html+=`<div class="story">
-      <div class="story-meta">${s.anon?"匿名":("✍️ "+s.name)} · ${timeAgo(s.createdAt)}</div>
-      <div class="story-body">${s.content}</div>
-      <div class="story-touch" onclick="touchStory('${s.id}')">${touched?"🤍 已看见":"🤍 轻触 · 看见她"} · ${s.touches.length}人看见</div>
+      <div class="story-meta">${s.anon?"匿名":("✍️ "+escapeHtml(s.name||"姐妹"))} · ${timeAgo(s.createdAt)}</div>
+      <div class="story-body">${escapeHtml(s.content)}</div>
+      <div class="story-touch" onclick="touchStory('${escapeAttr(s.id)}')">${touched?"🤍 已看见":"🤍 轻触 · 看见她"} · ${s.touches.length}人看见</div>
     </div>`;
   });
   body.innerHTML=html;
@@ -2554,9 +2597,9 @@ function renderMe(){
     <div class="profile-bg" id="profBgImg" style="${bgStyle(u.bg)}"></div>
     <div class="profile-card">
       <div class="avatar" onclick="changeAvatar()" style="cursor:pointer;">${avInner(u)}</div>
-      <div class="li-title" style="font-size:18px;">${u.nick}</div>
-      <div class="li-sub">ID: ${u.id}</div>
-      <div class="muted" style="font-size:13px;margin-top:6px;cursor:pointer;" onclick="editSign()">${u.sign||"✏️ 写一句个人签名…"}</div>
+      <div class="li-title" style="font-size:18px;">${escapeHtml(u.nick)}</div>
+      <div class="li-sub">ID: ${escapeHtml(u.id)}</div>
+      <div class="muted" style="font-size:13px;margin-top:6px;cursor:pointer;" onclick="editSign()">${escapeHtml(u.sign||"✏️ 写一句个人签名…")}</div>
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px;">
         <span class="temp-pill">🌡️ 本周温度 ${myTemp()}</span>
         <span class="temp-pill" style="background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">❤️ 共获 ${likesGot} 赞</span>
@@ -2573,9 +2616,9 @@ function renderMe(){
       <div class="menu-item" onclick="showBrowsed()">👀 浏览过的烦恼<span>${(DB.browsed||[]).length} ›</span></div>
       <div class="menu-item" onclick="showMyStories()">✨ 我的她意识故事<span>${myS.length} 篇 · 被看见 ${seenGot} ›</span></div>
       <div class="menu-item" onclick="showCompanions()">🤝 陪伴关系<span>${companions.length} ›</span></div>
-      ${grad.length?`<div class="menu-item" style="background:linear-gradient(135deg,#FCEFE3,#FBE7EC);">🎓 她陪我走过<span>${grad.join("、")}</span></div>`:""}
+      ${grad.length?`<div class="menu-item" style="background:linear-gradient(135deg,#FCEFE3,#FBE7EC);">🎓 她陪我走过<span>${grad.map(escapeHtml).join("、")}</span></div>`:""}
       <div class="menu-item" onclick="changeBg()">🖼️ 更换背景图<span>›</span></div>
-      <div class="menu-item" onclick="openAdminGate()" style="opacity:.7;font-size:13px;">🛠️ 开发者入口<span class="muted" style="font-weight:400;">需口令 ›</span></div>
+      <div class="menu-item" onclick="clickDevEntry()" style="opacity:.7;font-size:13px;">🛠️ 开发者入口<span class="muted" style="font-weight:400;">管理控制台 ›</span></div>
       <div class="menu-item" onclick="logout()" style="color:#D2615E;justify-content:center;">退出登录</div>
       <p class="field-hint center" style="margin:4px 16px 0;">她触 Touched · 内测版 v0.3</p>
     </div>`;
@@ -2596,7 +2639,7 @@ function pickAvatarImage(){
 function clearAvatarImage(){ const u=me(); u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
 function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
 /* 头像内容：有照片显示照片，否则显示 emoji */
-function avInner(u){ return (u && u.avatarImg) ? `<img src="${u.avatarImg}" alt="">` : (u && u.emoji || "🌸"); }
+function avInner(u){ return (u && u.avatarImg && isSafeImageData(u.avatarImg)) ? `<img src="${escapeAttr(u.avatarImg)}" alt="">` : escapeHtml(u && u.emoji || "🌸"); }
 function changeBg(){
   const colors=["linear-gradient(135deg,#C9A8D4,#F6C9D4,#F2C4A0)","linear-gradient(135deg,#F6C9D4,#FBE7EC)","linear-gradient(135deg,#C9A8D4,#EAD9F0)","linear-gradient(135deg,#F2C4A0,#FCEFE3)"];
   openSheet(`<h3>更换背景 🖼️</h3>
@@ -2605,13 +2648,13 @@ function changeBg(){
     <div class="section-title">或选一个渐变色</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${colors.map(c=>`<div style="height:70px;border-radius:14px;background:${c};cursor:pointer;" onclick="setBg('${c}')"></div>`).join("")}</div>`);
 }
-function bgStyle(bg){ if(!bg) return ""; return /^(data:|http)/.test(bg) ? `background:url(${bg}) center/cover` : `background:${bg}`; }
+function bgStyle(bg){ if(!bg) return ""; return isSafeImageData(bg) ? `background:url(${escapeAttr(bg)}) center/cover` : (/^linear-gradient\(/.test(bg)?`background:${bg}`:""); }
 function setBg(c){ me().bg=c; saveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(c); closeSheet(); toast(c?"背景已更换 🖼️":"已改回默认","",""); }
 function pickBgImage(){
   pickImage(1200, 500000, (data)=>{ me().bg=data; saveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast("背景已更换 🖼️","",""); });
 }
 function editSign(){
-  openSheet(`<h3>个人签名 ✏️</h3><textarea id="signText" maxlength="40" placeholder="用一句话介绍此刻的妳…">${me().sign||""}</textarea>
+  openSheet(`<h3>个人签名 ✏️</h3><textarea id="signText" maxlength="40" placeholder="用一句话介绍此刻的妳…">${escapeHtml(me().sign||"")}</textarea>
     <button class="btn block" style="margin-top:10px;" onclick="saveSign()">保存</button>`);
 }
 function saveSign(){ me().sign=document.getElementById("signText").value.trim(); saveDB(); CWuser(me()); closeSheet(); renderMe(); }
@@ -2621,8 +2664,8 @@ function showMyQuestions(){
     const reg={ice:"🧊",warm:"🌤",hot:"🔥"}[q.region];
     const tn=notesReceived().filter(n=>n.type==="touch"&&n.refId===q.id);
     return `<div class="card" style="margin:10px 0;"><div class="li-sub">${reg} ${q.domain} · ${(q.touches||[]).length}次轻触${q.hidden?" · 🙈已隐藏":""}</div><div style="margin-top:6px;">${escapeHtml(q.content)}</div>
-      ${tn.length?`<div class="section-title">收到的轻触（仅妳可见）</div>${tn.map(t=>`<div class="comment">🤍 <b style="cursor:pointer;" onclick="viewUser('${t.fromUid}')">${t.fromNick||"姐妹"}</b>：${escapeHtml(t.content||"")}</div>`).join("")}`:""}
-      <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn ghost sm" onclick="hideMine('questions','${q.id}')">${q.hidden?"👁 取消隐藏":"🙈 隐藏"}</button><button class="btn ghost sm" style="color:#D2615E;" onclick="delMine('questions','${q.id}')">🗑 删除</button></div></div>`;
+      ${tn.length?`<div class="section-title">收到的轻触（仅妳可见）</div>${tn.map(t=>`<div class="comment">🤍 <b style="cursor:pointer;" onclick="viewUser('${escapeAttr(t.fromUid)}')">${escapeHtml(t.fromNick||"姐妹")}</b>：${escapeHtml(t.content||"")}</div>`).join("")}`:""}
+      <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn ghost sm" onclick="hideMine('questions','${escapeAttr(q.id)}')">${q.hidden?"👁 取消隐藏":"🙈 隐藏"}</button><button class="btn ghost sm" style="color:#D2615E;" onclick="delMine('questions','${escapeAttr(q.id)}')">🗑 删除</button></div></div>`;
   }).join(""):'<p class="empty">还没有发出问题</p>'}`);
 }
 /* 我收到的（轻触/评论）通知列表 */
@@ -2633,8 +2676,8 @@ function showNotes(){
   openSheet(`<h3>通知 🔔</h3><p class="field-hint">赞、评论、收藏、轻触、拉手、看见、私信，都会出现在这里</p>
     ${recv.length?recv.map(n=>{
       const clickable = (n.type==="hand"||n.type==="message");
-      const onclk = clickable ? `onclick="closeSheet();openChatWith('${n.fromUid}')"` : "";
-      return `<div class="card" style="margin:10px 0;cursor:${clickable?'pointer':'default'};" ${onclk}><div class="li-sub">${noteIcon(n.type)} <b style="cursor:pointer;" onclick="event.stopPropagation();viewUser('${n.fromUid}')">${n.fromNick||"姐妹"}</b> ${noteVerb(n)} · ${timeAgo(n.at)}${clickable?' · 点击查看 ›':''}</div>
+      const onclk = clickable ? `onclick="closeSheet();openChatWith('${escapeAttr(n.fromUid)}')"` : "";
+      return `<div class="card" style="margin:10px 0;cursor:${clickable?'pointer':'default'};" ${onclk}><div class="li-sub">${noteIcon(n.type)} <b style="cursor:pointer;" onclick="event.stopPropagation();viewUser('${escapeAttr(n.fromUid)}')">${escapeHtml(n.fromNick||"姐妹")}</b> ${noteVerb(n)} · ${timeAgo(n.at)}${clickable?' · 点击查看 ›':''}</div>
         ${n.content?`<div style="margin-top:6px;">${escapeHtml(n.content)}</div>`:""}
         ${n.refText?`<div class="comment" style="margin-top:6px;">关于：${escapeHtml(n.refText)}</div>`:""}</div>`;
     }).join(""):'<p class="empty">还没有收到通知<br>多去温暖别人，也会收到回应哦🌸</p>'}`);
@@ -2656,12 +2699,12 @@ async function viewUser(id){
   const likes=herP.reduce((s,p)=>s+((p.likes&&p.likes.length)||0),0);
   openSheet(`<div class="center">
       <div class="avatar" style="width:80px;height:80px;font-size:38px;margin:0 auto 8px;">${avInner(u)}</div>
-      <div class="li-title" style="font-size:18px;">${u.nick||"姐妹"}</div>
-      <div class="li-sub">${[u.age?u.age+"岁":"",u.region||u.country||""].filter(Boolean).join(" · ")||"她触的姐妹"}</div>
+      <div class="li-title" style="font-size:18px;">${escapeHtml(u.nick||"姐妹")}</div>
+      <div class="li-sub">${[u.age?u.age+"岁":"",u.region||u.country||""].filter(Boolean).map(escapeHtml).join(" · ")||"她触的姐妹"}</div>
       <p class="muted" style="font-size:13px;margin-top:6px;">${u.sign?escapeHtml(u.sign):""}</p>
       <span class="temp-pill" style="margin-top:6px;background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">❤️ 帖子共获 ${likes} 赞</span>
     </div>
-    ${u.status||u.phase?`<div class="bubbles" style="justify-content:center;margin-top:10px;">${u.status?`<span class="bubble">${u.status}</span>`:""}${u.phase?`<span class="bubble lav">${u.phase}</span>`:""}</div>`:""}
+    ${u.status||u.phase?`<div class="bubbles" style="justify-content:center;margin-top:10px;">${u.status?`<span class="bubble">${escapeHtml(u.status)}</span>`:""}${u.phase?`<span class="bubble lav">${escapeHtml(u.phase)}</span>`:""}</div>`:""}
     ${u.hobbies&&u.hobbies.length?`<div class="section-title">爱好</div><div class="bubbles">${u.hobbies.slice(0,12).map(h=>`<span class="bubble">${escapeHtml(h)}</span>`).join("")}</div>`:""}
     ${u.skills&&u.skills.length?`<div class="section-title">擅长</div><div class="bubbles">${u.skills.slice(0,10).map(h=>`<span class="bubble apri">${escapeHtml(h)}</span>`).join("")}</div>`:""}
     ${herP.length?`<div class="section-title">她的帖子</div>${herP.slice(0,5).map(p=>`<div class="comment">${escapeHtml((p.text||"").slice(0,60))}${(p.text||"").length>60?"…":""}　❤️${(p.likes||[]).length}</div>`).join("")}`:""}`);
@@ -2669,7 +2712,7 @@ async function viewUser(id){
 function showMyPosts(){
   const myP=DB.posts.filter(p=>p.authorId===DB.currentUserId);
   openSheet(`<h3>我的帖子 🎉</h3>${myP.length?myP.map(p=>`<div class="card" style="margin:10px 0;">${escapeHtml(p.text)}${postImagesHTML(p)}<div class="li-sub" style="margin-top:6px;">❤️ ${(p.likes||[]).length} · 💬 ${(p.comments||[]).length}${p.hidden?" · 🙈已隐藏":""}</div>
-    <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn ghost sm" onclick="hideMine('posts','${p.id}')">${p.hidden?"👁 取消隐藏":"🙈 隐藏"}</button><button class="btn ghost sm" style="color:#D2615E;" onclick="delMine('posts','${p.id}')">🗑 删除</button></div></div>`).join(""):'<p class="empty">还没有发帖</p>'}`);
+    <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn ghost sm" onclick="hideMine('posts','${escapeAttr(p.id)}')">${p.hidden?"👁 取消隐藏":"🙈 隐藏"}</button><button class="btn ghost sm" style="color:#D2615E;" onclick="delMine('posts','${escapeAttr(p.id)}')">🗑 删除</button></div></div>`).join(""):'<p class="empty">还没有发帖</p>'}`);
 }
 /* 删除/隐藏自己发的帖子或问题 */
 function hideMine(coll,id){
@@ -2683,7 +2726,7 @@ function hideMine(coll,id){
 }
 function delMine(coll,id){
   openSheet(`<h3 class="center">确认删除？</h3><p class="center muted">删除后无法恢复哦。</p>
-    <button class="btn block" style="margin-top:12px;background:#D2615E;" onclick="confirmDelMine('${coll}','${id}')">确认删除</button>
+    <button class="btn block" style="margin-top:12px;background:#D2615E;" onclick="confirmDelMine('${escapeAttr(coll)}','${escapeAttr(id)}')">确认删除</button>
     <button class="btn ghost block" style="margin-top:10px;" onclick="${coll==='posts'?'showMyPosts':'showMyQuestions'}()">取消</button>`, true);
 }
 function confirmDelMine(coll,id){
@@ -2699,7 +2742,7 @@ function showMyStories(){
   const total=myS.reduce((s,x)=>s+((x.touches&&x.touches.length)||0),0);
   openSheet(`<h3>我的她意识故事 ✨</h3><p class="field-hint">共 ${myS.length} 篇 · 累计被看见 ${total} 次 🤍</p>
     ${myS.length?myS.map(s=>`<div class="card" style="margin:10px 0;">
-      <div class="li-sub">${s.anon?"匿名发布":("✍️ "+(s.name||""))} · ${timeAgo(s.createdAt)}</div>
+      <div class="li-sub">${s.anon?"匿名发布":("✍️ "+escapeHtml(s.name||""))} · ${timeAgo(s.createdAt)}</div>
       <div class="story-body" style="margin-top:6px;font-size:14px;">${escapeHtml(s.content)}</div>
       <div class="li-sub" style="margin-top:8px;">🤍 ${(s.touches||[]).length} 人看见</div></div>`).join(""):'<p class="empty">妳还没有在她意识留下故事<br>每一个故事都值得被看见 🌸</p>'}`);
 }
@@ -2709,7 +2752,7 @@ function showCompanions(){
   const caring=rels.filter(r=> r.type==="mentorship"? r.aId===u.id : true); // 简化：mentorship中aId为mentee
   openSheet(`<h3>陪伴关系 🤝</h3>
     <div class="section-title">正在陪伴我的姐妹 / 我正在陪伴的姐妹</div>
-    ${rels.length?rels.map(r=>{const o=relName(r);return `<div class="list-item" onclick="closeSheet();openChat('${r.id}')"><div class="avatar">${avInner(o)}</div><div class="li-main"><div class="li-title">${o.nick} <span class="rel-tag">${relTypeLabel(r)}</span></div><div class="li-sub">已建立 ${daysSince(r.confirmedAt||r.createdAt)} 天</div></div></div>`}).join(""):'<p class="empty">还没有陪伴关系</p>'}`);
+    ${rels.length?rels.map(r=>{const o=relName(r);return `<div class="list-item" onclick="closeSheet();openChat('${escapeAttr(r.id)}')"><div class="avatar">${avInner(o)}</div><div class="li-main"><div class="li-title">${escapeHtml(o.nick)} <span class="rel-tag">${escapeHtml(relTypeLabel(r))}</span></div><div class="li-sub">已建立 ${daysSince(r.confirmedAt||r.createdAt)} 天</div></div></div>`}).join(""):'<p class="empty">还没有陪伴关系</p>'}`);
 }
 function startEditProfile(){ editSingle=false; editProfileMenu(); }
 const PROF_FIELDS=[
@@ -2741,13 +2784,14 @@ function logout(){
     <button class="btn block" style="margin-top:14px;" onclick="doLogout()">退出</button>
     <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet()">取消</button>`, true);
 }
-function doLogout(){
+async function doLogout(){
   setSession("");
   if(CLOUD.enabled && CLOUD.auth){
-    // 匿名模式：登出会切换成新的匿名身份，刷新即可重新进入
-    try{ CLOUD.auth.signOut&&CLOUD.auth.signOut(); }catch(e){}
-    CLOUD.started=false; closeSheet();
-    location.reload(); return;
+    try{ if(CLOUD.auth.signOut) await CLOUD.auth.signOut(); }catch(e){ logEvent("error","登出:"+(e.message||e)); }
+    CLOUD.started=false; CLOUD.adminChecked=false; CLOUD.isAdmin=false;
+    // 清除本地缓存中的用户身份，避免下次自动登录
+    DB.currentUserId=null; saveDB();
+    closeSheet(); location.reload(); return;
   }
   DB.currentUserId=null; saveDB(); closeSheet();
   document.getElementById("tabbar").classList.remove("show"); go("welcome"); resetWelcome();
@@ -2758,8 +2802,8 @@ function resetWelcome(){ document.querySelectorAll("#welcomeLines p").forEach(p=
 document.addEventListener("input",e=>{ if(e.target.id==="chatText"){ e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,90)+"px"; } });
 
 /* ========== 14. 开发者 / 管理员视角 ==========
-   访问方式：网址后加 #dev 打开口令门；或在「我的」页底部连点版本号5次。
-   默认口令：touched-admin（可在控制台内修改，并可添加信任姐妹的口令）
+   访问方式：网址后加 #dev；云端模式必须通过 CloudBase admins/{uid} 授权。
+   本地模式口令只用于离线调试，不代表线上管理员权限。
 */
 const DEV_LOG=[];
 function logEvent(type, msg){
@@ -2771,19 +2815,63 @@ window.addEventListener("error", e=>{ logEvent("error", (e.message||"未知错�
 window.addEventListener("unhandledrejection", e=>{ logEvent("error", "Promise: "+(e.reason&&e.reason.message||e.reason)); });
 (function(){ const _ce=console.error.bind(console); console.error=function(){ const msg=[].join.call(arguments," "); if(/realtime|ws event|WEBSOCKET|SOCKET_CONNECTION/i.test(msg)){ logOnce("wsnoise","实时通道未连上(已用轮询兜底，可忽略)"); } else { logEvent("error", msg); } _ce.apply(null,arguments); }; })();
 
-function adminConfig(){ if(!DB.admin) DB.admin={pass:"touched-admin", extra:[]}; return DB.admin; }
+function adminConfig(){ if(!DB.admin) DB.admin={pass:"", extra:[]}; return DB.admin; }
 let adminUnlocked=false;
-function openAdminGate(){
+async function clickDevEntry(){
+  if(CLOUD.enabled){
+    const ok=await checkCloudAdmin(true);
+    if(ok){ adminUnlocked=true; go("admin"); renderAdmin("overview"); return; }
+    toast("需要管理员权限 🔒","");
+    return;
+  }
+  openAdminGate();
+}
+async function openAdminGate(){
   go("admin");
+  if(CLOUD.enabled){
+    document.getElementById("adminBody").innerHTML=`<div class="gate">
+      <div style="font-size:46px;">🛠️</div>
+      <h2 style="color:#fff;">开发者控制台</h2>
+      <p style="color:#B9A7C8;font-size:13px;">正在校验当前登录账号的云端管理员权限…</p>
+    </div>`;
+    const ok=await checkCloudAdmin(true);
+    if(ok){ adminUnlocked=true; logEvent("info","云端管理员已授权"); renderAdmin("overview"); }
+    else {
+      adminUnlocked=false;
+      document.getElementById("adminBody").innerHTML=`<div class="gate">
+        <div style="font-size:46px;">🔒</div>
+        <h2 style="color:#fff;">需要云端管理员权限</h2>
+        <p style="color:#B9A7C8;font-size:13px;">请先登录已加入 <code>admins</code> 集合的账号。以下是添加管理员的方法：</p>
+	        <div class="adm-card" style="text-align:left;margin:12px 0;">
+	          <div style="font-size:13px;line-height:1.8;color:#D5C8DE;">
+	            <b>📋 操作步骤：</b><br>
+	            1. 复制妳的 UID<br>
+	            2. 打开 CloudBase 控制台 → 数据库 → 新建 <code style="background:#332A3B;padding:1px 5px;border-radius:3px;">admins</code> 集合<br>
+	            3. 新增文档，文档 ID = 妳的 UID<br>
+	            4. 文档内容：<code style="background:#332A3B;padding:1px 5px;border-radius:3px;">{"active":true,"role":"admin"}</code><br>
+	            5. 回到这里点「重新校验」
+	          </div>
+	          <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+	            <span style="color:#B9A7C8;font-size:12px;">妳的 UID：</span>
+	            <code id="adminMyUid" style="background:#332A3B;padding:4px 10px;border-radius:6px;word-break:break-all;font-size:12px;flex:1;min-width:0;">${escapeHtml(DB.currentUserId||"未知")}</code>
+	            <button class="adm-btn ok" onclick="copyAdminUid()" style="flex-shrink:0;">📋 复制</button>
+	          </div>
+	        </div>
+	        <button class="btn block" style="margin-top:12px;" onclick="checkCloudAdmin(true).then(ok=>{ if(ok){ adminUnlocked=true; renderAdmin('overview'); } else toast('仍未授权 🔒','请确认 CloudBase admins 集合中已添加文档',''); })">重新校验</button>
+	        <a class="link" style="color:#9C8AAC;margin-top:8px;display:inline-block;" onclick="exitAdmin()">返回 App</a>
+	      </div>`;
+    }
+    return;
+  }
   if(adminUnlocked){ renderAdmin("overview"); return; }
   document.getElementById("adminBody").innerHTML=`
     <div class="gate">
       <div style="font-size:46px;">🛠️</div>
-      <h2 style="color:#fff;">开发者控制台</h2>
-      <p style="color:#B9A7C8;font-size:13px;">仅限管理员。请输入口令。</p>
+      <h2 style="color:#fff;">本地调试控制台</h2>
+      <p style="color:#B9A7C8;font-size:13px;">当前未连接云端，仅用于本机排查，不代表线上管理员权限。</p>
       <input id="admPass" type="password" placeholder="管理员口令" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;text-align:center;margin-top:10px;">
       <button class="btn block" style="margin-top:12px;" onclick="checkAdminPass()">进入 →</button>
-      <p style="color:#6E5E7E;font-size:11px;margin-top:14px;">默认口令 touched-admin，进入后可修改</p>
+      <p style="color:#6E5E7E;font-size:11px;margin-top:14px;">首次可自行设置本机调试口令；线上请使用 admins/{uid} 授权。</p>
       <a class="link" style="color:#9C8AAC;margin-top:8px;display:inline-block;" onclick="exitAdmin()">返回 App</a>
     </div>`;
   setTimeout(()=>{ const i=document.getElementById("admPass"); if(i) i.focus(); },200);
@@ -2791,7 +2879,8 @@ function openAdminGate(){
 function checkAdminPass(){
   const v=(document.getElementById("admPass").value||"").trim();
   const cfg=adminConfig();
-  if(v===cfg.pass || cfg.extra.includes(v)){ adminUnlocked=true; logEvent("info","管理员登录"); renderAdmin("overview"); }
+  if(!cfg.pass && v.length>=8){ cfg.pass=v; saveDB(); adminUnlocked=true; logEvent("info","本地调试口令已设置"); renderAdmin("overview"); return; }
+  if(v && (v===cfg.pass || cfg.extra.includes(v))){ adminUnlocked=true; logEvent("info","本地调试入口已解锁"); renderAdmin("overview"); }
   else { toast("口令不正确 🔒","",""); }
 }
 function exitAdmin(){
@@ -2826,15 +2915,13 @@ function adminOverview(){
     <div class="adm-card"><h4>🩺 健康检查</h4>
       <div class="adm-row ${errs?"":""}">运行错误：<b style="color:${errs?"#F6A9A9":"#9FD3B0"}">${errs} 条</b>${errs?'　<span class="adm-btn" onclick="renderAdmin(\'log\')">查看</span>':"　✅ 暂无报错"}</div>
       <div class="adm-row">localStorage 占用：${size} KB ${size>4000?"⚠️ 偏大":"✅"}</div>
-      <div class="adm-row">当前登录：${DB.currentUserId?(me()?me().nick+"（"+me().id+"）":"异常用户ID"):"未登录"}</div>
+      <div class="adm-row">当前登录：${DB.currentUserId?(me()?escapeHtml(me().nick)+"（"+escapeHtml(me().id)+"）":"异常用户ID"):"未登录"}</div>
       <div class="adm-row">数据完整性：${checkIntegrity()}</div>
     </div>
-    <div class="adm-card"><h4>🔑 管理员设置</h4>
-      <div class="adm-row">当前口令：<code>${adminConfig().pass}</code></div>
-      <div style="display:flex;gap:6px;margin-top:6px;"><input id="newPass" placeholder="设置新口令" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn ok" onclick="setAdminPass()">更新</button></div>
-      <div style="margin-top:10px;font-size:12px;color:#B9A7C8;">信任姐妹口令（额外可用口令，逗号分隔可加多个）：</div>
-      <div style="display:flex;gap:6px;margin-top:6px;"><input id="extraPass" placeholder="如：lily2026" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn" onclick="addAdmin()">添加</button></div>
-      ${adminConfig().extra.length?`<div class="adm-row" style="margin-top:8px;">已授权：${adminConfig().extra.map(x=>`<code>${x}</code>`).join("、")}</div>`:""}
+    <div class="adm-card"><h4>🔑 管理员授权</h4>
+      <div class="adm-row">线上权限：${CLOUD.enabled?(CLOUD.isAdmin?"✅ 当前账号已通过 admins/{uid} 校验":"🔒 当前账号未通过云端校验"):"本地调试模式"}</div>
+      <div class="adm-row" style="font-size:12px;line-height:1.7;">GitHub Pages 前端口令不能保护云端数据。线上审核必须由 CloudBase 数据库规则或云函数校验当前登录 UID。</div>
+      ${!CLOUD.enabled?`<div style="display:flex;gap:6px;margin-top:6px;"><input id="newPass" placeholder="设置本机调试口令（至少8位）" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn ok" onclick="setAdminPass()">更新</button></div>`:""}
     </div>`;
 }
 function checkIntegrity(){
@@ -2843,23 +2930,38 @@ function checkIntegrity(){
   DB.questions.forEach(q=>{ if(!userById(q.authorId)) issues.push("问题"+q.id+"作者缺失"); });
   return issues.length?('⚠️ '+issues.length+' 处：'+issues.slice(0,3).join("；")):"✅ 正常";
 }
-function setAdminPass(){ const v=(document.getElementById("newPass").value||"").trim(); if(v.length<4){ toast("口令至少4位 🔒","",""); return; } adminConfig().pass=v; saveDB(); renderAdmin("overview"); toast("口令已更新 🔑","（本机生效）",""); }
-function addAdmin(){ const v=(document.getElementById("extraPass").value||"").trim(); if(!v) return; v.split(",").map(s=>s.trim()).filter(Boolean).forEach(p=>{ if(!adminConfig().extra.includes(p)) adminConfig().extra.push(p); }); saveDB(); renderAdmin("overview"); toast("已添加信任口令 🌸","（本机生效）",""); }
+function setAdminPass(){ const v=(document.getElementById("newPass").value||"").trim(); if(v.length<8){ toast("本机调试口令至少8位 🔒","",""); return; } adminConfig().pass=v; adminConfig().extra=[]; saveDB(); renderAdmin("overview"); toast("本机调试口令已更新 🔑","",""); }
+function addAdmin(){ toast("线上管理员请在 CloudBase admins/{uid} 授权 🔒","",""); }
 function adminLog(){
+
+function copyAdminUid(){
+  const el=document.getElementById("adminMyUid");
+  if(!el){ toast("找不到UID元素 🔒","",""); return; }
+  const text=el.textContent||"";
+  if(navigator.clipboard){ navigator.clipboard.writeText(text).then(()=>toast("已复制 ✅","UID已复制到剪贴板","📋")).catch(()=>fallbackCopy(text)); }
+  else fallbackCopy(text);
+  function fallbackCopy(t){
+    const ta=document.createElement("textarea"); ta.value=t; ta.style.position="fixed"; ta.style.left="-9999px";
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); toast("已复制 ✅","UID已复制到剪贴板","📋"); }catch(e){ toast("复制失败","请手动选中UID复制",""); }
+    document.body.removeChild(ta);
+  }
+}
   if(!DEV_LOG.length) return `<div class="adm-card"><h4>📜 运行日志</h4><div class="adm-row">暂无日志，一切平稳 🌿</div></div>`;
   return `<div class="adm-card"><h4>📜 运行日志（最新在上）<span class="adm-btn" style="float:right;" onclick="clearLog()">清空</span></h4>
-    ${DEV_LOG.slice().reverse().map(l=>`<div class="log-line ${l.type}">[${new Date(l.t).toLocaleTimeString()}] ${l.type==="error"?"❌":"ℹ️"} ${l.msg}</div>`).join("")}</div>
+    ${DEV_LOG.slice().reverse().map(l=>`<div class="log-line ${escapeAttr(l.type)}">[${new Date(l.t).toLocaleTimeString()}] ${l.type==="error"?"❌":"ℹ️"} ${escapeHtml(l.msg)}</div>`).join("")}</div>
     <div class="adm-card"><h4>🧪 自检</h4><button class="adm-btn" onclick="runSelfTest()">运行一次自检</button><div id="selfTestOut" style="margin-top:8px;"></div></div>`;
 }
 function clearLog(){ DEV_LOG.length=0; if(DB) DB.devLog=[]; saveDB(); renderAdmin("log"); }
 function runSelfTest(){
   const out=[]; let ok=true;
   try{
-    out.push(typeof matchScore==="function"?"✅ 匹配引擎可用":"❌ 匹配引擎缺失");
-    out.push(DB.users.every(u=>u.id)?"✅ 用户ID完整":"❌ 用户ID异常");
+      out.push(typeof matchScore==="function"?"✅ 匹配引擎可用":"❌ 匹配引擎缺失");
+      out.push(DB.users.every(u=>u.id)?"✅ 用户ID完整":"❌ 用户ID异常");
+      out.push(CLOUD.enabled?(CLOUD.isAdmin?"✅ 云端管理员已授权":"⚠️ 云端管理员未授权"):"ℹ️ 本地调试模式");
     out.push("✅ localStorage 读写正常");
   }catch(e){ ok=false; out.push("❌ "+e.message); }
-  document.getElementById("selfTestOut").innerHTML=out.map(o=>`<div class="log-line ${o[0]==="✅"?"info":""}">${o}</div>`).join("");
+  document.getElementById("selfTestOut").innerHTML=out.map(o=>`<div class="log-line ${o[0]==="✅"?"info":""}">${escapeHtml(o)}</div>`).join("");
 }
 /* ---- 内容审核 ---- */
 function allContent(){
@@ -2878,15 +2980,16 @@ function adminMod(){
     ${CLOUD.enabled?`<button class="adm-btn" onclick="adminLoadAllContent()">🔄 加载全部内容（含旧废帖）</button><div class="adm-row" style="font-size:11px;">「隐藏」对全员即时生效、且不会再被匹配到——清理旧废帖/废问用它最省事。「删除」仅能删自己创建的（彻底删别人的请在 CloudBase 控制台）。</div>`:""}
     <div class="adm-tabs">${filters.map(f=>`<span class="adm-tab ${modFilter===f[0]?"on":""}" onclick="setModFilter('${f[0]}')">${f[1]}</span>`).join("")}</div>
     ${items.length?items.map(i=>`<div class="adm-row ${i.hidden?"hidden-row":""}">
-      <div class="meta">${i.kind} · ${i.who} ${i.hidden?"· 已隐藏":""}</div>${escapeHtml(i.text)}
-      <div><button class="adm-btn ${i.hidden?"ok":"danger"}" onclick="toggleHide('${i.coll}','${i.id}')">${i.hidden?"恢复显示":"隐藏"}</button>
-      <button class="adm-btn danger" onclick="modDelete('${i.coll}','${i.id}')">删除</button></div>
+      <div class="meta">${escapeHtml(i.kind)} · ${escapeHtml(i.who)} ${i.hidden?"· 已隐藏":""}</div>${escapeHtml(i.text)}
+      <div><button class="adm-btn ${i.hidden?"ok":"danger"}" onclick="toggleHide('${escapeAttr(i.coll)}','${escapeAttr(i.id)}')">${i.hidden?"恢复显示":"隐藏"}</button>
+      <button class="adm-btn danger" onclick="modDelete('${escapeAttr(i.coll)}','${escapeAttr(i.id)}')">删除</button></div>
     </div>`).join(""):'<div class="adm-row">没有内容</div>'}</div>`;
   return html;
 }
 function setModFilter(f){ modFilter=f; renderAdmin("mod"); }
 async function adminLoadAllContent(){
   if(!CLOUD.enabled) return;
+  if(!(await checkCloudAdmin())){ toast("需要云端管理员权限 🔒","",""); renderAdmin("overview"); return; }
   toast("加载中…","从云端拉取内容","");
   try{
     const [q,p,s]=await Promise.all([
@@ -2906,23 +3009,51 @@ function findContentObj(coll,id){
   if(coll==="comment"){ const [pid,idx]=id.split("|"); const p=DB.posts.find(x=>x.id===pid); return p&&p.comments[+idx]; }
   return null;
 }
-function toggleHide(coll,id){
+async function toggleHide(coll,id){
   const o=findContentObj(coll,id); if(!o) return; o.hidden=!o.hidden; saveDB();
-  // 用 update 只改 hidden 字段（管理员可隐藏任何人内容；隐藏后不再出现在烦恼屋/派对屋/匹配里）
-  if(coll==="comment"){ const p=DB.posts.find(x=>x.id===id.split("|")[0]); CW("posts",p); }
-  else if(CLOUD.enabled) cwUpdate(coll,id,{hidden:o.hidden}); else CW(coll,o);
-  logEvent("info","审核："+(o.hidden?"隐藏":"恢复")+" "+coll); renderAdmin("mod"); refreshCurrentFeeds(); nextWorryResetIfHidden(id);
+  try{
+    if(coll==="comment"){
+      const p=DB.posts.find(x=>x.id===id.split("|")[0]);
+      if(CLOUD.enabled){
+        if(!(await checkCloudAdmin())) throw new Error("not-admin");
+        await CLOUD.db.collection("posts").doc(p.id).update({comments:plain(p.comments)});
+      } else CW("posts",p);
+    } else {
+      await adminUpdateDoc(coll,id,{hidden:o.hidden});
+    }
+    logEvent("info","审核："+(o.hidden?"隐藏":"恢复")+" "+coll); renderAdmin("mod"); refreshCurrentFeeds(); nextWorryResetIfHidden(id);
+  }catch(e){
+    o.hidden=!o.hidden; saveDB();
+    logEvent("error","审核失败："+(e.message||e)); toast("审核失败 🔒","请确认当前账号有云端管理员权限","");
+    renderAdmin("mod");
+  }
 }
 function nextWorryResetIfHidden(id){ if(_shownWorryId===id){ _shownWorryId=null; if(currentScreen==="home"&&homeTab==="worry") renderWorry(); } }
-function modDelete(coll,id){
-  if(coll==="comment"){ const [pid,idx]=id.split("|"); const p=DB.posts.find(x=>x.id===pid); if(p){ p.comments.splice(+idx,1); CW("posts",p); } }
-  else if(coll==="questions"){ DB.questions=DB.questions.filter(x=>x.id!==id); CWdel("questions",id); }
-  else if(coll==="posts"){ DB.posts=DB.posts.filter(x=>x.id!==id); CWdel("posts",id); }
-  else if(coll==="stories"){ DB.stories=DB.stories.filter(x=>x.id!==id); CWdel("stories",id); }
-  saveDB(); logEvent("info","审核删除 "+coll); renderAdmin("mod"); refreshCurrentFeeds();
+async function modDelete(coll,id){
+  if(!requireCloudAdmin("删除内容需要云端管理员权限")) return;
+  try{
+    if(coll==="comment"){
+      const [pid,idx]=id.split("|"); const p=DB.posts.find(x=>x.id===pid);
+      if(p){ const removed=p.comments.splice(+idx,1); if(CLOUD.enabled){ if(!(await checkCloudAdmin())) throw new Error("not-admin"); await CLOUD.db.collection("posts").doc(pid).update({comments:plain(p.comments)}); } else CW("posts",p); if(!removed.length) return; }
+    }
+    else if(coll==="questions"){ DB.questions=DB.questions.filter(x=>x.id!==id); await adminDeleteDoc("questions",id); }
+    else if(coll==="posts"){ DB.posts=DB.posts.filter(x=>x.id!==id); await adminDeleteDoc("posts",id); }
+    else if(coll==="stories"){ DB.stories=DB.stories.filter(x=>x.id!==id); await adminDeleteDoc("stories",id); }
+    saveDB(); logEvent("info","审核删除 "+coll); renderAdmin("mod"); refreshCurrentFeeds();
+  }catch(e){
+    logEvent("error","审核删除失败："+(e.message||e)); toast("删除失败 🔒","请确认当前账号有云端管理员权限","");
+    await adminLoadAllContent();
+  }
 }
 function refreshCurrentFeeds(){ if(currentScreen==="home") renderHome(); if(currentScreen==="aware") renderAware(); }
-function escapeHtml(s){ return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
+function escapeHtml(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+function escapeAttr(s){ return escapeHtml(s).replace(/`/g,"&#96;"); }
+function escapeJsArg(s){ return String(s==null?"":s).replace(/\\/g,"\\\\").replace(/'/g,"\\'").replace(/\r?\n/g," "); }
+function isSafeImageData(s){
+  if(typeof s!=="string") return false;
+  if(/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(s)) return s.length<=650000;
+  return /^https:\/\/[^\s"'<>]+$/i.test(s);
+}
 /* ---- 数据管理 ---- */
 function adminData(){
   return `<div class="adm-card"><h4>💾 数据管理</h4>
