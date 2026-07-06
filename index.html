@@ -837,7 +837,15 @@ async function fetchRelationships(){
   }catch(e){ logOnce("rel","取关系失败:"+(e.message||e)); }
 }
 async function fetchMe(){ const uid=DB.currentUserId; const t0=Date.now(); try{ const r=await CLOUD.db.collection("users").doc(uid).get(); logEvent("info","取个人资料 "+(Date.now()-t0)+"ms"); const u=r.data&&r.data[0]; if(u){ upsertUser(u); try{saveDB();}catch(e){} rerenderCurrent(); } }catch(e){ logEvent("error","取个人资料失败:"+(e.message||e)); } }
-async function fetchPrivate(){ const uid=DB.currentUserId; try{ const r=await CLOUD.db.collection("private").doc(uid).get(); DB.private=(r.data&&r.data[0])||{}; if(DB.private.browsed && DB.private.browsed.length){ DB.browsed=DB.private.browsed; try{saveDB();}catch(e){} } }catch(e){ DB.private=DB.private||{}; } }
+async function fetchPrivate(){ const uid=DB.currentUserId; try{ const r=await CLOUD.db.collection("private").doc(uid).get(); DB.private=(r.data&&r.data[0])||{}; const p=DB.private; if(p.browsed && p.browsed.length) DB.browsed=p.browsed; if(p.seenQuestions && p.seenQuestions.length) DB.seenQuestions=p.seenQuestions; if(p.skipped && p.skipped.length) DB.skipped=p.skipped; if(p.notesSeen) try{ localStorage.setItem("touched_notes_seen_"+uid, String(p.notesSeen)); }catch(e){} if(p.tutorialDone) DB.tutorialDone=true; try{saveDB();}catch(e){} }catch(e){ DB.private=DB.private||{}; } }
+/* 将频繁变动的本地状态同步到云端 private（防丢失，非实时） */
+function syncPrivateMeta(){
+  if(!CLOUD.enabled || !DB.currentUserId) return;
+  const patch={seenQuestions:DB.seenQuestions||[], skipped:DB.skipped||[], browsed:DB.browsed||[]};
+  try{ patch.notesSeen=+(localStorage.getItem("touched_notes_seen_"+DB.currentUserId)||0); }catch(e){}
+  if(DB.tutorialDone) patch.tutorialDone=true;
+  CWprivate(patch);
+}
 /* ---- 通知（收到的轻触/评论/赞）---- */
 let _prevNoteCount=null;
 async function fetchNotifications(){
@@ -866,7 +874,7 @@ function createNote(toUid, type, refId, refText, content){
 function notesReceived(){ return (DB.notes||[]).filter(n=>n.toUid===DB.currentUserId); }
 function notesSent(){ return (DB.notes||[]).filter(n=>n.fromUid===DB.currentUserId && n.toUid!==DB.currentUserId); }
 function myUnreadNotes(){ let seen=0; try{ seen=+(localStorage.getItem("touched_notes_seen_"+DB.currentUserId)||0); }catch(e){} return notesReceived().filter(n=>(n.at||0)>seen); }
-function markNotesSeen(){ try{ localStorage.setItem("touched_notes_seen_"+DB.currentUserId, String(now())); }catch(e){} updateNavBadge(); }
+function markNotesSeen(){ try{ localStorage.setItem("touched_notes_seen_"+DB.currentUserId, String(now())); }catch(e){} updateNavBadge(); if(CLOUD.enabled) syncPrivateMeta(); }
 function updateNavBadge(){
   const n=myUnreadNotes().length;
   // 红点放在「触碰」导航上（通知组件在触碰页）
@@ -1389,7 +1397,7 @@ function nextTut(){ tutIdx++; renderTut(); }
 function endTutorial(){
   document.querySelectorAll(".tut-highlight").forEach(e=>e.classList.remove("tut-highlight"));
   document.getElementById("tutorial").classList.remove("show");
-  DB.tutorialDone=true; const u=me(); if(u) u.isNew=false; saveDB();
+  DB.tutorialDone=true; const u=me(); if(u) u.isNew=false; saveDB(); if(CLOUD.enabled) syncPrivateMeta();
   toast("欢迎正式加入她触 🌷","愿妳在这里被温柔接住","🌸");
 }
 
@@ -1446,7 +1454,7 @@ function renderWorry(){
 function skipQuestion(id){
   if(!DB.seenQuestions.includes(id)) DB.seenQuestions.push(id);
   DB.skipped=DB.skipped||[]; if(!DB.skipped.includes(id)) DB.skipped.push(id);   // 记录跳过的，可回看
-  saveDB();
+  saveDB(); if(CLOUD.enabled) syncPrivateMeta();
   const c=document.getElementById("qcard");
   if(c){ c.style.transition="transform .35s,opacity .35s"; c.style.transform="translateX(120%) rotate(8deg)"; c.style.opacity="0"; }
   setTimeout(renderWorry,300);
@@ -1472,10 +1480,10 @@ function showSkipped(){
 function unskip(id){
   DB.skipped=(DB.skipped||[]).filter(x=>x!==id);
   DB.seenQuestions=(DB.seenQuestions||[]).filter(x=>x!==id);
-  saveDB(); closeSheet(); toast("已放回烦恼屋 🌿","",""); if(currentScreen==="home"&&homeTab==="worry") renderWorry();
+  saveDB(); if(CLOUD.enabled) syncPrivateMeta(); closeSheet(); toast("已放回烦恼屋 🌿","",""); if(currentScreen==="home"&&homeTab==="worry") renderWorry();
 }
 /* ---- 浏览过的烦恼记录（个人主页入口，永不消失，随时回看/链接）---- */
-function markBrowsed(id){ DB.browsed=DB.browsed||[]; const i=DB.browsed.indexOf(id); if(i>=0) DB.browsed.splice(i,1); DB.browsed.unshift(id); if(DB.browsed.length>200) DB.browsed.length=200; saveDB(); if(CLOUD.enabled && DB.currentUserId) CWprivate({browsed:DB.browsed}); }
+function markBrowsed(id){ DB.browsed=DB.browsed||[]; const i=DB.browsed.indexOf(id); if(i>=0) DB.browsed.splice(i,1); DB.browsed.unshift(id); if(DB.browsed.length>200) DB.browsed.length=200; saveDB(); if(CLOUD.enabled) syncPrivateMeta(); }
 function showBrowsed(){
   const list=(DB.browsed||[]).map(id=>DB.questions.find(q=>q.id===id)).filter(q=>q&&!q.hidden&&q.authorId!==DB.currentUserId);
   openSheet(`<h3>浏览过的烦恼 💭</h3><p class="field-hint">妳看过的每一个烦恼都留在这里，随时可以回来轻触或拉手 🌸</p>
@@ -1522,7 +1530,7 @@ function sendTouch(){
   const item={by:DB.currentUserId, at:now()};   // 公开问题上只存"谁触过"用于计数/去重，内容只进通知（仅双方可见）
   if(!q.touches.some(t=>t.by===DB.currentUserId)){ q.touches.push(item); if(CLOUD.enabled) cwArrAdd("questions",q.id,"touches",item); else CW("questions",q); }
   if(!DB.seenQuestions.includes(q.id)) DB.seenQuestions.push(q.id);
-  saveDB();
+  saveDB(); if(CLOUD.enabled) syncPrivateMeta();
   createNote(q.authorId, "touch", q.id, q.content, content);   // 给发问者发通知（内容仅双方可见）
   closeSheet();
   addTemp(5,"完成一次轻触");
@@ -1954,7 +1962,7 @@ function initiateHand(qid){
 }
 function sendHand(qid){
   const q=DB.questions.find(x=>x.id===qid);
-  DB.seenQuestions.push(qid); saveDB();
+  DB.seenQuestions.push(qid); saveDB(); if(CLOUD.enabled) syncPrivateMeta();
   closeSheet();
   if(CLOUD.enabled){
     // 真实世界：拉手即和对方开启试聊，对方会在她的设备看到并收到通知
