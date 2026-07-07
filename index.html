@@ -703,6 +703,13 @@ function cwUserMeta(patch){
   if(!CLOUD.enabled || !DB.currentUserId) return;
   try{ CLOUD.db.collection("users").doc(DB.currentUserId).update(plain(patch)).catch(e=>logEvent("error","cwUserMeta: "+(e.message||e))); }catch(e){ logEvent("error","cwUserMeta: "+(e.message||e)); }
 }
+/* 同步用户档案字段到云端（只发文字，不传头像/背景大图，update() 部分更新） */
+function cwUserProfile(u){
+  if(!CLOUD.enabled || !u || !u.id) return;
+  const fields=['nick','age','country','region','status','phase','needs','purpose','time','hobbies','mbti','skills','traits','exp','sign','emoji','phone','isNew','updatedAt','temp','tempWeek'];
+  const patch={}; fields.forEach(k=>{ if(u[k]!==undefined) patch[k]=u[k]; });
+  cwUserMeta(patch);
+}
 
 /* 生成用于本地缓存的「精简快照」：剥离所有大图 base64（图片只在内存显示 + 存云端，绝不进 localStorage，
    否则共享的配图帖会迅速撑爆浏览器 ~5MB 配额，导致连纯文字帖都保存失败/卡住）。内存里的 DB 不受影响。 */
@@ -1132,7 +1139,7 @@ function addTemp(amount, reason){
   const u = me(); if(!u) return;
   if(!u.tempWeek || u.tempWeek!==weekKey()){ u.tempWeek=weekKey(); u.temp=0; }
   u.temp = (u.temp||0) + amount;
-  saveDB(); CWuser(u);
+  saveDB(); cwUserProfile(u);
   toast("温度 +"+amount+"🌡️", reason||"", "🌡️");
 }
 function myTemp(){ const u=me(); if(!u) return 0; if(u.tempWeek!==weekKey()) return 0; return u.temp||0; }
@@ -1246,7 +1253,7 @@ function afterLogin(uid){
     if(CLOUD.enabled){ try{ const r=await CLOUD.db.collection("users").doc(uid).get(); const u0=r.data&&r.data[0]; const local=me();
         if(u0){
           // 若本地有更新的编辑（云端写入曾失败/更慢），保留本地并补写云端，避免重登复原
-          if(local && (local.updatedAt||0) > (u0.updatedAt||0)){ CWuser(local); prof=local; logEvent("info","本地档案较新，已保留并补同步云端"); }
+          if(local && (local.updatedAt||0) > (u0.updatedAt||0)){ cwUserProfile(local); prof=local; logEvent("info","本地档案较新，已保留并补同步云端"); }
           else { upsertUser(u0); prof=me()||u0; }
           // 从云端用户文档恢复元数据（浏览记录/跳过/已看/通知已读/教程）——最可靠路径
           if(u0.browsed && u0.browsed.length) DB.browsed=u0.browsed;
@@ -1392,7 +1399,7 @@ let editSingle=false;
 function profNext(skip){
   if(!skip){ syncCurrentStep(); if(!stepValid()){ updateProfNext(); return; } }
   if(editSingle){   // 单项编辑：保存这一项就回个人主页 + 档案菜单（不进入全流程）
-    const u=me(); if(u){ Object.assign(u, profDraft); u.updatedAt=now(); saveDB(); CWuser(u); }
+    const u=me(); if(u){ Object.assign(u, profDraft); u.updatedAt=now(); saveDB(); cwUserProfile(u); }
     editSingle=false; navTo("me"); toast("已保存 🌸","",""); editProfileMenu(); return;
   }
   if(profStepIdx<PROF_STEPS.length-1){ profStepIdx++; renderProfStep(); }
@@ -1405,7 +1412,9 @@ function finishProfile(){
   if(!u.nick) u.nick="匿名小花";
   if(firstTime && !u.avatarImg) u.emoji = ["🌷","🌸","🌹","🌻","🌼","🪷","🐰","🌙","🍃"][Math.floor(Math.random()*9)];
   u.updatedAt=now();
-  saveDB(); CWuser(u);
+  saveDB();
+  if(firstTime){ CWuser(u); }   // 首次建档用 set() 创建文档
+  else { cwUserProfile(u); }    // 后续编辑用 update() 部分更新
   if(firstTime){
     u.isNew=true; saveDB();
     showLoader("正在为妳点亮她触…", ()=>{ go("home"); renderHome(); if(!DB.tutorialDone) startTutorial(); });
@@ -3175,7 +3184,7 @@ function boot(){
       CLOUD.db.collection("users").doc(uid).get().then(r=>{
         const p=r.data&&r.data[0]; const local=me();
         if(p){
-          if(local && (local.updatedAt||0) > (p.updatedAt||0)){ CWuser(local); rerenderCurrent(); logEvent("info","本地档案较新，已保留并补同步云端"); }
+          if(local && (local.updatedAt||0) > (p.updatedAt||0)){ cwUserProfile(local); rerenderCurrent(); logEvent("info","本地档案较新，已保留并补同步云端"); }
           else { upsertUser(p); if(!p.nick){ ensureMyUserObj(); startProfile(); } else rerenderCurrent(); }
         }
         else { ensureMyUserObj(); startProfile(); }
