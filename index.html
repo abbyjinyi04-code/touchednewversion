@@ -1117,7 +1117,7 @@ function toast(title, body, icon){
 
 /* ---------- 加载小花瓣动画 ---------- */
 let LOADER_BUSY=false;
-function showLoader(text, cb, dur){
+async function showLoader(text, cb, dur){
   const l = document.getElementById("loader");
   document.getElementById("loaderText").textContent = text || "温柔加载中…";
   const p = document.getElementById("petals");
@@ -1130,7 +1130,10 @@ function showLoader(text, cb, dur){
     p.appendChild(s);
   }
   LOADER_BUSY=true; l.classList.add("show");
-  setTimeout(()=>{ LOADER_BUSY=false; l.classList.remove("show"); if(cb) cb(); }, dur||1400);
+  const t0=Date.now(), minShow=dur||1400;
+  if(cb){ try{ await cb(); }catch(e){ logEvent("error","loader: "+(e.message||e)); } }
+  const wait=Math.max(0, minShow-(Date.now()-t0));
+  setTimeout(()=>{ LOADER_BUSY=false; l.classList.remove("show"); }, wait);
 }
 
 /* ---------- 温度值 ---------- */
