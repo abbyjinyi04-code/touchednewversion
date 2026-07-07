@@ -2686,10 +2686,10 @@ function changeAvatar(){
     <div class="emoji-grid">${opts.map(o=>`<span class="bubble" onclick="setAvatar('${o}')">${o}</span>`).join("")}</div>`);
 }
 function pickAvatarImage(){
-  pickImage(256, 140000, (data)=>{ const u=me(); u.avatarImg=data; saveDB(); CWuser(u); saveUserLocalData(); closeSheet(); renderMe(); toast("头像已更新 🌸","",""); });
+  pickImage(256, 140000, (data)=>{ const u=me(); u.avatarImg=data; saveDB(); cwUserMeta({avatarImg:data}); saveUserLocalData(); closeSheet(); renderMe(); toast("头像已更新 🌸","",""); });
 }
-function clearAvatarImage(){ const u=me(); u.avatarImg=""; saveDB(); CWuser(u); saveUserLocalData(); closeSheet(); renderMe(); }
-function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); CWuser(u); saveUserLocalData(); closeSheet(); renderMe(); }
+function clearAvatarImage(){ const u=me(); u.avatarImg=""; saveDB(); cwUserMeta({avatarImg:""}); saveUserLocalData(); closeSheet(); renderMe(); }
+function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); cwUserMeta({emoji:e,avatarImg:""}); saveUserLocalData(); closeSheet(); renderMe(); }
 /* 头像内容：有照片显示照片，否则显示 emoji */
 function avInner(u){ return (u && u.avatarImg && isSafeImageData(u.avatarImg)) ? `<img src="${escapeAttr(u.avatarImg)}" alt="">` : escapeHtml(u && u.emoji || "🌸"); }
 function changeBg(){
@@ -2701,15 +2701,15 @@ function changeBg(){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${colors.map(c=>`<div style="height:70px;border-radius:14px;background:${c};cursor:pointer;" onclick="setBg('${c}')"></div>`).join("")}</div>`);
 }
 function bgStyle(bg){ if(!bg) return ""; return isSafeImageData(bg) ? `background:url(${escapeAttr(bg)}) center/cover` : (/^linear-gradient\(/.test(bg)?`background:${bg}`:""); }
-function setBg(c){ me().bg=c; saveDB(); CWuser(me()); saveUserLocalData(); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(c); closeSheet(); toast(c?"背景已更换 🖼️":"已改回默认","",""); }
+function setBg(c){ me().bg=c; saveDB(); cwUserMeta({bg:c}); saveUserLocalData(); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(c); closeSheet(); toast(c?"背景已更换 🖼️":"已改回默认","",""); }
 function pickBgImage(){
-  pickImage(1200, 500000, (data)=>{ me().bg=data; saveDB(); CWuser(me()); saveUserLocalData(); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast("背景已更换 🖼️","",""); });
+  pickImage(1200, 500000, (data)=>{ me().bg=data; saveDB(); cwUserMeta({bg:data}); saveUserLocalData(); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast("背景已更换 🖼️","",""); });
 }
 function editSign(){
   openSheet(`<h3>个人签名 ✏️</h3><textarea id="signText" maxlength="40" placeholder="用一句话介绍此刻的妳…">${escapeHtml(me().sign||"")}</textarea>
     <button class="btn block" style="margin-top:10px;" onclick="saveSign()">保存</button>`);
 }
-function saveSign(){ me().sign=document.getElementById("signText").value.trim(); saveDB(); CWuser(me()); closeSheet(); renderMe(); }
+function saveSign(){ me().sign=document.getElementById("signText").value.trim(); saveDB(); cwUserMeta({sign:me().sign}); closeSheet(); renderMe(); }
 function showMyQuestions(){
   const myQ=DB.questions.filter(q=>q.authorId===DB.currentUserId);
   openSheet(`<h3>我发出的问题 💭</h3>${myQ.length?myQ.map(q=>{
