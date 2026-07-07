@@ -672,6 +672,38 @@ const CLOUDBASE_REGION = "ap-shanghai";   // 若环境在广州填 ap-guangzhou�
 const DB_KEY = "touched_db_v1";
 let DB = null;
 
+/* 用户关键数据的独立备份（不经过 slimForStorage 裁剪，防头像/浏览记录丢失） */
+function _userDataKey(){ return DB.currentUserId ? "touched_ud_"+DB.currentUserId : null; }
+function saveUserLocalData(){
+  const k=_userDataKey(); if(!k) return;
+  const u=me(); const d={
+    avatarImg:(u&&u.avatarImg)||"", bgImg:(u&&u.bgImg)||"",
+    browsed:DB.browsed||[], seenQuestions:DB.seenQuestions||[], skipped:DB.skipped||[],
+    tutorialDone:!!DB.tutorialDone
+  };
+  try{ d.notesSeen=+(localStorage.getItem("touched_notes_seen_"+DB.currentUserId)||0); }catch(e){}
+  try{ localStorage.setItem(k, JSON.stringify(d)); }catch(e){}
+}
+function restoreUserLocalData(){
+  const k=_userDataKey(); if(!k) return;
+  try{
+    const raw=localStorage.getItem(k); if(!raw) return;
+    const d=JSON.parse(raw); const u=me();
+    if(u){ if(d.avatarImg) u.avatarImg=d.avatarImg; if(d.bgImg) u.bgImg=d.bgImg; }
+    if(d.browsed && d.browsed.length) DB.browsed=d.browsed;
+    if(d.seenQuestions && d.seenQuestions.length) DB.seenQuestions=d.seenQuestions;
+    if(d.skipped && d.skipped.length) DB.skipped=d.skipped;
+    if(d.tutorialDone) DB.tutorialDone=true;
+    if(d.notesSeen) try{ localStorage.setItem("touched_notes_seen_"+DB.currentUserId, String(d.notesSeen)); }catch(e){}
+    try{saveDB();}catch(e){}
+  }catch(e){}
+}
+/* 云端用户文档的部分更新（只写元数据，不重传大头像/背景图） */
+function cwUserMeta(patch){
+  if(!CLOUD.enabled || !DB.currentUserId) return;
+  try{ CLOUD.db.collection("users").doc(DB.currentUserId).update(plain(patch)).catch(e=>logEvent("error","cwUserMeta: "+(e.message||e))); }catch(e){ logEvent("error","cwUserMeta: "+(e.message||e)); }
+}
+
 /* 生成用于本地缓存的「精简快照」：剥离所有大图 base64（图片只在内存显示 + 存云端，绝不进 localStorage，
    否则共享的配图帖会迅速撑爆浏览器 ~5MB 配额，导致连纯文字帖都保存失败/卡住）。内存里的 DB 不受影响。 */
 function slimForStorage(){
@@ -696,6 +728,8 @@ function loadDB(){
   const raw = localStorage.getItem(DB_KEY);
   if(raw){ try{ DB = JSON.parse(raw); }catch(e){ DB=null; } }
   if(!DB){ DB = seedDB(); saveDB(); }
+  // 登录后从独立备份恢复用户关键数据（头像/浏览记录等，不会被 slimForStorage 裁剪）
+  if(DB.currentUserId) restoreUserLocalData();
 }
 function resetDB(){ localStorage.removeItem(DB_KEY); localStorage.removeItem("touched_session"); location.reload(); }
 
@@ -844,7 +878,9 @@ function syncPrivateMeta(){
   const patch={seenQuestions:DB.seenQuestions||[], skipped:DB.skipped||[], browsed:DB.browsed||[]};
   try{ patch.notesSeen=+(localStorage.getItem("touched_notes_seen_"+DB.currentUserId)||0); }catch(e){}
   if(DB.tutorialDone) patch.tutorialDone=true;
-  CWprivate(patch);
+  CWprivate(patch);                    // → private 集合
+  cwUserMeta(patch);                   // → users 文档部分更新（最可靠路径）
+  saveUserLocalData();                 // → 独立 localStorage 备份（防裁剪）
 }
 /* ---- 通知（收到的轻触/评论/赞）---- */
 let _prevNoteCount=null;
@@ -1212,8 +1248,16 @@ function afterLogin(uid){
           // 若本地有更新的编辑（云端写入曾失败/更慢），保留本地并补写云端，避免重登复原
           if(local && (local.updatedAt||0) > (u0.updatedAt||0)){ CWuser(local); prof=local; logEvent("info","本地档案较新，已保留并补同步云端"); }
           else { upsertUser(u0); prof=me()||u0; }
+          // 从云端用户文档恢复元数据（浏览记录/跳过/已看/通知已读/教程）——最可靠路径
+          if(u0.browsed && u0.browsed.length) DB.browsed=u0.browsed;
+          if(u0.seenQuestions && u0.seenQuestions.length) DB.seenQuestions=u0.seenQuestions;
+          if(u0.skipped && u0.skipped.length) DB.skipped=u0.skipped;
+          if(u0.notesSeen) try{ localStorage.setItem("touched_notes_seen_"+uid, String(u0.notesSeen)); }catch(e){}
+          if(u0.tutorialDone) DB.tutorialDone=true;
         }
       }catch(e){ logEvent("error","登录取档案:"+(e.message||e)); } }
+    // 再用独立 localStorage 备份兜底补漏
+    restoreUserLocalData();
     if(prof && prof.nick){ DB.tutorialDone=true; saveDB(); go("home"); navTo("home"); toast("欢迎回来，"+prof.nick+" 🌷","",""); }
     else { ensureMyUserObj(); startProfile(); }   // 新用户/没填过档案 → 去建档
   });
@@ -2642,10 +2686,10 @@ function changeAvatar(){
     <div class="emoji-grid">${opts.map(o=>`<span class="bubble" onclick="setAvatar('${o}')">${o}</span>`).join("")}</div>`);
 }
 function pickAvatarImage(){
-  pickImage(256, 140000, (data)=>{ const u=me(); u.avatarImg=data; saveDB(); CWuser(u); closeSheet(); renderMe(); toast("头像已更新 🌸","",""); });
+  pickImage(256, 140000, (data)=>{ const u=me(); u.avatarImg=data; saveDB(); CWuser(u); saveUserLocalData(); closeSheet(); renderMe(); toast("头像已更新 🌸","",""); });
 }
-function clearAvatarImage(){ const u=me(); u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
-function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
+function clearAvatarImage(){ const u=me(); u.avatarImg=""; saveDB(); CWuser(u); saveUserLocalData(); closeSheet(); renderMe(); }
+function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); CWuser(u); saveUserLocalData(); closeSheet(); renderMe(); }
 /* 头像内容：有照片显示照片，否则显示 emoji */
 function avInner(u){ return (u && u.avatarImg && isSafeImageData(u.avatarImg)) ? `<img src="${escapeAttr(u.avatarImg)}" alt="">` : escapeHtml(u && u.emoji || "🌸"); }
 function changeBg(){
@@ -2657,9 +2701,9 @@ function changeBg(){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${colors.map(c=>`<div style="height:70px;border-radius:14px;background:${c};cursor:pointer;" onclick="setBg('${c}')"></div>`).join("")}</div>`);
 }
 function bgStyle(bg){ if(!bg) return ""; return isSafeImageData(bg) ? `background:url(${escapeAttr(bg)}) center/cover` : (/^linear-gradient\(/.test(bg)?`background:${bg}`:""); }
-function setBg(c){ me().bg=c; saveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(c); closeSheet(); toast(c?"背景已更换 🖼️":"已改回默认","",""); }
+function setBg(c){ me().bg=c; saveDB(); CWuser(me()); saveUserLocalData(); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(c); closeSheet(); toast(c?"背景已更换 🖼️":"已改回默认","",""); }
 function pickBgImage(){
-  pickImage(1200, 500000, (data)=>{ me().bg=data; saveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast("背景已更换 🖼️","",""); });
+  pickImage(1200, 500000, (data)=>{ me().bg=data; saveDB(); CWuser(me()); saveUserLocalData(); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast("背景已更换 🖼️","",""); });
 }
 function editSign(){
   openSheet(`<h3>个人签名 ✏️</h3><textarea id="signText" maxlength="40" placeholder="用一句话介绍此刻的妳…">${escapeHtml(me().sign||"")}</textarea>
