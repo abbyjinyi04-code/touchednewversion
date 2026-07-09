@@ -803,8 +803,9 @@ async function checkCloudAdmin(force){
     const a=r.data&&r.data[0];
     CLOUD.adminInfo=a||null;
     CLOUD.isAdmin=!!(a && a.active!==false);
+    if(!CLOUD.isAdmin) CLOUD._lastAdminErr="文档不存在或无 active:true 字段";
   }catch(e){
-    CLOUD.adminInfo=null; CLOUD.isAdmin=false;
+    CLOUD.adminInfo=null; CLOUD.isAdmin=false; CLOUD._lastAdminErr=e.message||String(e);
     logEvent("error","管理员校验失败（检查 admins 集合规则/UID）:"+(e.message||e));
   }
   CLOUD.adminChecked=true;
@@ -2902,26 +2903,29 @@ async function openAdminGate(){
     if(ok){ adminUnlocked=true; logEvent("info","云端管理员已授权"); renderAdmin("overview"); }
     else {
       adminUnlocked=false;
+      const errMsg=CLOUD._lastAdminErr||"未知错误";
       document.getElementById("adminBody").innerHTML=`<div class="gate">
         <div style="font-size:46px;">🔒</div>
         <h2 style="color:#fff;">需要云端管理员权限</h2>
+        <p style="color:#F6A9A9;font-size:13px;margin:8px 0;word-break:break-all;">⚠ 校验失败：${escapeHtml(errMsg)}</p>
         <p style="color:#B9A7C8;font-size:13px;">请先登录已加入 <code>admins</code> 集合的账号。以下是添加管理员的方法：</p>
 	        <div class="adm-card" style="text-align:left;margin:12px 0;">
 	          <div style="font-size:13px;line-height:1.8;color:#D5C8DE;">
 	            <b>📋 操作步骤：</b><br>
-	            1. 复制妳的 UID<br>
+	            1. 复制妳的 UID（下面这条）<br>
 	            2. 打开 CloudBase 控制台 → 数据库 → 新建 <code style="background:#332A3B;padding:1px 5px;border-radius:3px;">admins</code> 集合<br>
-	            3. 新增文档，文档 ID = 妳的 UID<br>
+	            3. 新增文档，<b>文档 ID 必须等于上面的 UID</b>（不是自动生成）<br>
 	            4. 文档内容：<code style="background:#332A3B;padding:1px 5px;border-radius:3px;">{"active":true,"role":"admin"}</code><br>
-	            5. 回到这里点「重新校验」
+	            5. ⚠️ <b>关键</b>：在 CloudBase 控制台 → 数据库 → admins 集合 → 权限设置，确保 <code style="background:#332A3B;padding:1px 5px;border-radius:3px;">.read: "auth != null"</code>（允许登录用户读取）<br>
+	            6. 回到这里点「重新校验」
 	          </div>
 	          <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
 	            <span style="color:#B9A7C8;font-size:12px;">妳的 UID：</span>
-	            <code id="adminMyUid" style="background:#332A3B;padding:4px 10px;border-radius:6px;word-break:break-all;font-size:12px;flex:1;min-width:0;">${escapeHtml(DB.currentUserId||"未知")}</code>
+	            <code id="adminMyUid" style="background:#332A3B;padding:4px 10px;border-radius:6px;word-break:break-all;font-size:13px;flex:1;min-width:0;color:#F2C4A0;font-weight:bold;">${escapeHtml(DB.currentUserId||"未知")}</code>
 	            <button class="adm-btn ok" onclick="copyAdminUid()" style="flex-shrink:0;">📋 复制</button>
 	          </div>
 	        </div>
-	        <button class="btn block" style="margin-top:12px;" onclick="checkCloudAdmin(true).then(ok=>{ if(ok){ adminUnlocked=true; renderAdmin('overview'); } else toast('仍未授权 🔒','请确认 CloudBase admins 集合中已添加文档',''); })">重新校验</button>
+	        <button class="btn block" style="margin-top:12px;" onclick="checkCloudAdmin(true).then(ok=>{ if(ok){ adminUnlocked=true; renderAdmin('overview'); } else toast('仍未授权 🔒','错误：'+(CLOUD._lastAdminErr||'未知'),''); })">重新校验</button>
 	        <a class="link" style="color:#9C8AAC;margin-top:8px;display:inline-block;" onclick="exitAdmin()">返回 App</a>
 	      </div>`;
     }
