@@ -694,8 +694,8 @@ const STR = {
   nav_touch:{zh:"触碰",en:"Connections"},
   nav_aware:{zh:"她意识",en:"Herstory"},
   nav_me:{zh:"我的",en:"Me"},
-  tab_worry:{zh:"💭 烦恼屋",en:"💭 the Nest"},
-  tab_party:{zh:"🎉 派对屋",en:"🎉 the Lounge"},
+  tab_worry:{zh:"💭 烦恼屋",en:"💭 Therapy Room"},
+  tab_party:{zh:"🎉 派对屋",en:"🎉 Common Room"},
   top_touch:{zh:"💬 触碰",en:"💬 Connections"},
   top_aware:{zh:"✨ 她意识",en:"✨ Herstory"},
   /* —— 欢迎页 —— */
@@ -729,13 +729,15 @@ const STR = {
   chat_ph:{zh:"说点什么…",en:"Say something…"},
   chat_send:{zh:"发送",en:"Send"},
   /* —— 她意识头图三行 —— */
-  aware_l1:{zh:"妳的生命曾经怎样流动过",en:"where your life has flowed"},
-  aware_l2:{zh:"妳的生命正在流经什么",en:"what it's moving through now"},
-  aware_l3:{zh:"妳的生命未来将要流向哪一片海域",en:"and which sea it's carrying you toward"},
+  aware_l1:{zh:"妳的生命曾经怎样流动过",en:"How Your Life Flows"},
+  aware_l2:{zh:"妳的生命正在流经什么",en:"How Your Love Grows"},
+  aware_l3:{zh:"妳的生命未来将要流向哪一片海域",en:"How We Make Miracles"},
   aware_note:{zh:"在这里留下妳的故事，被看见。只能「轻触🤍」表示看见、不能评论，故事永久留存。",en:"Leave your story here, and be seen. You can only \"Touch 🤍\" to say you saw it — no comments. Stories stay forever."},
   aware_leave:{zh:"＋ 留下我的故事",en:"＋ Leave my story"},
 };
 function t(key){ const e=STR[key]; if(!e) return key; return (e[LANG]!=null?e[LANG]:e.zh); }
+/* 内联双语助手：一次性文案用 L("中文","English")，比建 key 更省事 */
+function L(zh, en){ return LANG==="en" ? en : zh; }
 function setLang(l){
   if(l!==LANG){ LANG=l; try{localStorage.setItem("touched_lang",l);}catch(e){} }
   try{ document.documentElement.lang = (LANG==="zh"?"zh-CN":"en"); }catch(e){}
@@ -908,7 +910,11 @@ async function fetchNotifications(){
     if(currentScreen==="touch") renderTouch();
   }catch(e){ logOnce("note","取通知失败:"+(e.message||e)); }
 }
-function noteVerb(n){ return ({touch:"轻触了妳 🤍",comment:"评论了妳的帖子 💬",reply:"回复了妳 💬",like:"赞了妳的帖子 ❤️",save:"收藏了妳的帖子 ⭐",hand:"想和妳建立链接 🤝",message:"给妳发来私信 ✉️",seen:"看见了妳的故事 🤍",follow:"关注了妳 🌸"})[n.type]||"给妳留言"; }
+function noteVerb(n){
+  const zh={touch:"轻触了妳 🤍",comment:"评论了妳的帖子 💬",reply:"回复了妳 💬",like:"赞了妳的帖子 ❤️",save:"收藏了妳的帖子 ⭐",hand:"想和妳建立链接 🤝",message:"给妳发来私信 ✉️",seen:"看见了妳的故事 🤍",follow:"关注了妳 🌸"};
+  const en={touch:"touched you 🤍",comment:"commented on your post 💬",reply:"replied to you 💬",like:"liked your post ❤️",save:"saved your post ⭐",hand:"wants to reach out 🤝",message:"sent you a message ✉️",seen:"saw your story 🤍",follow:"followed you 🌸"};
+  return (LANG==="en"?en:zh)[n.type] || L("给妳留言","left you a note");
+}
 function createNote(toUid, type, refId, refText, content){
   if(!toUid || toUid===DB.currentUserId) return;   // 不给自己发通知
   const note={ id:uid("n"), toUid, fromUid:DB.currentUserId, members:[toUid, DB.currentUserId], fromNick:(me()&&me().nick)||"姐妹", type, refId:refId||"", refText:(refText||"").slice(0,40), content:content||"", at:now(), read:false };
@@ -936,9 +942,9 @@ function noteBarHTML(){
   const n=myUnreadNotes().length;
   return `<div id="noteBar" class="list-item" style="${n>0?'border-color:var(--rose);background:#FFF1F4;':''}cursor:pointer;" onclick="showNotes()">
     <div class="avatar" style="background:linear-gradient(135deg,#F2C4A0,#E8829A);">🔔</div>
-    <div class="li-main"><div class="li-title">通知${n>0?` <span class="nav-badge" style="position:static;transform:none;display:inline-flex;">${n>99?'99+':n}</span>`:''}</div>
-    <div class="li-sub">${n>0?('有 '+n+' 条新消息（赞/评论/收藏/轻触/拉手/看见/私信）'):'赞、评论、收藏、轻触、拉手、看见、私信都会在这里'}</div></div>
-    <div class="li-sub" style="color:var(--rose);">查看 ›</div></div>`;
+    <div class="li-main"><div class="li-title">${L("通知","Notifications")}${n>0?` <span class="nav-badge" style="position:static;transform:none;display:inline-flex;">${n>99?'99+':n}</span>`:''}</div>
+    <div class="li-sub">${n>0?L(('有 '+n+' 条新消息（赞/评论/收藏/轻触/拉手/看见/私信）'),(n+" new "+(n>1?"updates":"update")+" — likes, comments, saves, touches, and more")):L('赞、评论、收藏、轻触、拉手、看见、私信都会在这里','Likes, comments, saves, touches, reach-outs and messages all show up here')}</div></div>
+    <div class="li-sub" style="color:var(--rose);">${L("查看","View")} ›</div></div>`;
 }
 
 /* 启动：首次拉取 + 实时监听（watch；任意改动→重新拉取该集合） */
@@ -996,15 +1002,26 @@ const now = ()=> Date.now();
 function daysSince(t){ return Math.max(0, Math.floor((now()-t)/86400000)); }
 function timeAgo(t){
   const s=Math.floor((now()-t)/1000);
+  if(LANG==="en"){
+    if(s<60) return "just now";
+    if(s<3600){ const m=Math.floor(s/60); return m+(m>1?" mins ago":" min ago"); }
+    if(s<86400){ const hh=Math.floor(s/3600); return hh+(hh>1?" hrs ago":" hr ago"); }
+    const dd=Math.floor(s/86400); return dd+(dd>1?" days ago":" day ago");
+  }
   if(s<60) return "刚刚";
   if(s<3600) return Math.floor(s/60)+"分钟前";
   if(s<86400) return Math.floor(s/3600)+"小时前";
   return Math.floor(s/86400)+"天前";
 }
 /* 发帖/发问时间：当天显示 时:分，非当天显示 月日（跨年显示年月日） */
+const EN_MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function fmtTime(ts){
   if(!ts) return ""; const d=new Date(ts), n=new Date(); const p=x=>("0"+x).slice(-2);
   if(d.toDateString()===n.toDateString()) return p(d.getHours())+":"+p(d.getMinutes());
+  if(LANG==="en"){
+    if(d.getFullYear()===n.getFullYear()) return EN_MON[d.getMonth()]+" "+d.getDate();
+    return EN_MON[d.getMonth()]+" "+d.getDate()+", "+d.getFullYear();
+  }
   if(d.getFullYear()===n.getFullYear()) return (d.getMonth()+1)+"月"+d.getDate()+"日";
   return d.getFullYear()+"-"+(d.getMonth()+1)+"-"+d.getDate();
 }
@@ -1584,7 +1601,7 @@ function renderParty(){
   const body=document.getElementById("homeBody");
   let html=`<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><button class="btn sm" onclick="openComposePost()">${t("btn_post")}</button></div>`;
   const posts=DB.posts.filter(p=>!p.hidden && !isBlocked(p.authorId));   // 稳定顺序（最新在前）；过滤已屏蔽的人
-  if(!posts.length) html+=`<div class="empty">还没有动态，来发第一条吧🎉</div>`;
+  if(!posts.length) html+=`<div class="empty">${L("还没有动态，来发第一条吧🎉","No posts yet — be the first to share 🎉")}</div>`;
   posts.forEach(p=>{
     const a=userById(p.authorId)||{nick:"姐妹",emoji:"🌸"};
     const liked=p.likes.includes(DB.currentUserId), saved=p.saved.includes(DB.currentUserId);
@@ -1597,7 +1614,7 @@ function renderParty(){
       <div class="post-actions">
         <span class="${liked?"on":""}" onclick="toggleLike('${p.id}')">${liked?"❤️":"🤍"} ${p.likes.length}</span>
         <span onclick="openComments('${p.id}')">💬 ${p.comments.length}</span>
-        <span class="${saved?"on":""}" onclick="toggleSave('${p.id}')">${saved?"⭐":"☆"} 收藏</span>
+        <span class="${saved?"on":""}" onclick="toggleSave('${p.id}')">${saved?"⭐":"☆"} ${L("收藏","Save")}</span>
         ${mine?"":`<span style="margin-left:auto;color:var(--ink-soft);font-size:12px;" onclick="reportContent('post','${p.id}','${p.authorId}')">${t("act_report")}</span>`}
       </div>
       ${p.comments.filter(c=>!c.hidden && !isBlocked(c.by)).map(c=>commentLine(c)).join("")}
@@ -1622,7 +1639,7 @@ function toggleSave(id){
   const i=p.saved.indexOf(DB.currentUserId);
   if(i>=0){ p.saved.splice(i,1); if(CLOUD.enabled) cwArrPull("posts",id,"saved",DB.currentUserId); }
   else { p.saved.push(DB.currentUserId); if(CLOUD.enabled) cwArrAdd("posts",id,"saved",DB.currentUserId); createNote(p.authorId,"save",id,p.text); }
-  saveDB(); if(!CLOUD.enabled) CW("posts",p); toast(i>=0?"已取消收藏":"已收藏 ⭐","",""); renderParty();
+  saveDB(); if(!CLOUD.enabled) CW("posts",p); toast(i>=0?L("已取消收藏","Removed from saved"):L("已收藏 ⭐","Saved ⭐"),"",""); renderParty();
 }
 let _cmtReplyTo=null;
 function openComments(id){ _cmtReplyTo=null; renderCommentsSheet(id); }
@@ -2257,34 +2274,34 @@ function pushSys(relId, text){ pushMsg(relId, "sys", text, "sys"); }
 /* ========== 10. 触碰页（私聊 + 深度链接管理） ========== */
 function relName(rel){ const otherId=rel.aId===DB.currentUserId?rel.bId:rel.aId; return userById(otherId)||{nick:"姐妹",emoji:"🌸",id:otherId}; }
 function relTypeLabel(rel){
-  if(rel.status==="trial") return "试聊中 🌤";
-  if(rel.status==="casual") return "闲聊 💬";
+  if(rel.status==="trial") return L("试聊中 🌤","Trial chat 🌤");
+  if(rel.status==="casual") return L("闲聊 💬","Casual 💬");
   if(rel.type==="mentorship"){
-    const role = isMentor(rel)?"我是Mentor🌟":(isMentee(rel)?"我是Mentee🌱":"");
+    const role = isMentor(rel)?L("我是Mentor🌟","I'm the Mentor 🌟"):(isMentee(rel)?L("我是Mentee🌱","I'm the Mentee 🌱"):"");
     return "🎓 Mentorship"+(role?" · "+role:"");
   }
-  return {buddy:"👯 搭子",company:"🫂 轻陪伴"}[rel.type]||"链接";
+  return {buddy:L("👯 搭子","👯 Buddy"),company:L("🫂 轻陪伴","🫂 Gentle company")}[rel.type]||L("链接","Connection");
 }
 function relShortTag(rel){
-  if(rel.status==="trial") return "试聊 🌤";
-  if(rel.status==="casual") return "闲聊 💬";
-  return {mentorship:"🎓 Mentorship",buddy:"👯 搭子",company:"🫂 轻陪伴"}[rel.type]||"链接";
+  if(rel.status==="trial") return L("试聊 🌤","Trial 🌤");
+  if(rel.status==="casual") return L("闲聊 💬","Casual 💬");
+  return {mentorship:"🎓 Mentorship",buddy:L("👯 搭子","👯 Buddy"),company:L("🫂 轻陪伴","🫂 Gentle company")}[rel.type]||L("链接","Connection");
 }
 function lastLine(r){
   const last=(DB.chats[r.id]||[]).slice(-1)[0];
-  if(!last) return "开始聊天吧～";
+  if(!last) return L("开始聊天吧～","Say hi to start~");
   if(last.from==="sys") return last.text;
-  return (last.from===DB.currentUserId?"我：":"")+last.text;
+  return (last.from===DB.currentUserId?L("我：","Me: "):"")+last.text;
 }
 function relItem(r, showManage){
   const o=relName(r); const days=daysSince(r.confirmedAt||r.createdAt);
-  const right = r.status==="linked"? "第"+days+"天" : (r.status==="trial"?"试聊中":"闲聊");
+  const right = r.status==="linked"? L("第"+days+"天","Day "+days) : (r.status==="trial"?L("试聊中","Trial chat"):L("闲聊","Casual"));
   const onClick = showManage ? `openRelManage('${r.id}')` : `openChat('${r.id}')`;
   return `<div class="list-item" onclick="${onClick}">
     <div class="avatar">${avInner(o)}</div>
     <div class="li-main"><div class="li-title">${o.nick} <span class="rel-tag">${relShortTag(r)}</span></div>
     <div class="li-sub">${lastLine(r)}</div></div>
-    <div style="text-align:right;"><div class="li-sub">${right}</div>${showManage?'<div class="li-sub" style="color:var(--rose);">🏡 小屋</div>':'<div class="li-sub" style="color:var(--rose);">💬 聊天</div>'}</div>
+    <div style="text-align:right;"><div class="li-sub">${right}</div>${showManage?'<div class="li-sub" style="color:var(--rose);">'+L("🏡 小屋","🏡 Room")+'</div>':'<div class="li-sub" style="color:var(--rose);">'+L("💬 聊天","💬 Chat")+'</div>'}</div>
   </div>`;
 }
 function renderTouch(){
@@ -2294,23 +2311,23 @@ function renderTouch(){
   const trials=all.filter(r=>r.status==="trial");
   const casuals=all.filter(r=>r.status==="casual");
   let html=noteBarHTML()+`<div class="card" style="background:linear-gradient(135deg,#FBE7EC,#F3E9F5);text-align:center;margin:8px 0 6px;">
-      <h2 style="margin:0;">💞 妳的链接</h2>
-      <p class="muted" style="font-size:12.5px;margin:6px 0 0;">深度链接进「关系小屋」用专属功能，试聊/闲聊点进去直接聊天 🌷</p>
+      <h2 style="margin:0;">${L("💞 妳的链接","💞 Your connections")}</h2>
+      <p class="muted" style="font-size:12.5px;margin:6px 0 0;">${L("深度链接进「关系小屋」用专属功能，试聊/闲聊点进去直接聊天 🌷","Deep connections open a private Room with special tools; trial &amp; casual ones open straight into chat 🌷")}</p>
     </div>`;
   if(!all.length){
-    html+=`<div class="empty">还没有进行中的链接<br>去烦恼屋轻触或拉手，开启第一段链接吧～<br><br><button class="btn" onclick="navTo('home')">去烦恼屋看看 →</button></div>`;
+    html+=`<div class="empty">${L("还没有进行中的链接<br>去烦恼屋轻触或拉手，开启第一段链接吧～","No connections yet.<br>Head to the Therapy Room to Touch or Reach out and start your first one~")}<br><br><button class="btn" onclick="navTo('home')">${L("去烦恼屋看看 →","Go to the Therapy Room →")}</button></div>`;
     body.innerHTML=html; return;
   }
   if(linked.length){
-    html+=`<div class="section-title">🏡 深度链接（${linked.length}）· 点进关系小屋</div>`;
+    html+=`<div class="section-title">${L("🏡 深度链接（"+linked.length+"）· 点进关系小屋","🏡 Deep connections ("+linked.length+") · open the Room")}</div>`;
     linked.forEach(r=>html+=relItem(r,true));
   }
   if(trials.length){
-    html+=`<div class="section-title">🌤 试聊中（${trials.length}）</div>`;
+    html+=`<div class="section-title">${L("🌤 试聊中（"+trials.length+"）","🌤 Trial chats ("+trials.length+")")}</div>`;
     trials.forEach(r=>html+=relItem(r,false));
   }
   if(casuals.length){
-    html+=`<div class="section-title">💬 闲聊（${casuals.length}）</div>`;
+    html+=`<div class="section-title">${L("💬 闲聊（"+casuals.length+"）","💬 Casual ("+casuals.length+")")}</div>`;
     casuals.forEach(r=>html+=relItem(r,false));
   }
   body.innerHTML=html;
@@ -2330,50 +2347,50 @@ function renderRelManage(){
   let html=`<div class="rm-hero" style="background:${heroBg}">
     <div class="avatar">${avInner(o)}</div>
     <div class="li-title" style="font-size:17px;">${o.nick}</div>
-    <div class="rel-big">${relShortTag(r)} · 已建立 ${days} 天</div>
+    <div class="rel-big">${relShortTag(r)} · ${L("已建立 "+days+" 天","Day "+days+" together")}</div>
   </div>`;
 
   if(r.type==="mentorship"){
     const mentorN=userById(r.mentorId).nick, menteeN=userById(r.menteeId).nick;
-    html+=`<div class="rm-goal">🎓 <b>${mentorN}</b> 是 Mentor 🌟　|　<b>${menteeN}</b> 是 Mentee 🌱</div>`;
-    html+=`<div class="rm-goal">🎯 <b>成长目标：</b>${r.goal||"（未填写）"}</div>`;
+    html+=`<div class="rm-goal">🎓 <b>${mentorN}</b> ${L("是 Mentor 🌟","is the Mentor 🌟")}　|　<b>${menteeN}</b> ${L("是 Mentee 🌱","is the Mentee 🌱")}</div>`;
+    html+=`<div class="rm-goal">🎯 <b>${L("成长目标：","Growth goal: ")}</b>${r.goal||L("（未填写）","(not set yet)")}</div>`;
     const pendingForMentor = isMentor(r) && r.checkins.some(c=>!c.reply);
     html+=`<div class="func-grid" style="margin-top:12px;">`;
     if(isMentee(r)){
-      html+=`<div class="func-card" onclick="menteeCheckin()"><span class="fc-ic">✅</span><div class="fc-t">目标打卡</div><div class="fc-d">更新妳的进展</div></div>`;
+      html+=`<div class="func-card" onclick="menteeCheckin()"><span class="fc-ic">✅</span><div class="fc-t">${L("目标打卡","Check in")}</div><div class="fc-d">${L("更新妳的进展","Share your progress")}</div></div>`;
     } else {
-      html+=`<div class="func-card" style="position:relative;" onclick="viewCheckins()"><span class="fc-ic">📋</span><div class="fc-t">mentee的打卡</div><div class="fc-d">查看并鼓励她</div>${pendingForMentor?'<span class="badge-dot">待回应</span>':''}</div>`;
+      html+=`<div class="func-card" style="position:relative;" onclick="viewCheckins()"><span class="fc-ic">📋</span><div class="fc-t">${L("mentee的打卡","Her check-ins")}</div><div class="fc-d">${L("查看并鼓励她","See &amp; cheer her on")}</div>${pendingForMentor?'<span class="badge-dot">'+L("待回应","reply")+'</span>':''}</div>`;
     }
-    html+=`<div class="func-card" onclick="markGem()"><span class="fc-ic">⭐</span><div class="fc-t">成长金句</div><div class="fc-d">珍藏一句话</div></div>
-      <div class="func-card" onclick="writeDiary()"><span class="fc-ic">📔</span><div class="fc-t">感受日记</div><div class="fc-d">只有妳可见</div></div>
-      <div class="func-card" onclick="reviewCycle()"><span class="fc-ic">🎓</span><div class="fc-t">复盘 / 毕业</div><div class="fc-d">为这段画个句点</div></div>`;
+    html+=`<div class="func-card" onclick="markGem()"><span class="fc-ic">⭐</span><div class="fc-t">${L("成长金句","Keepsake line")}</div><div class="fc-d">${L("珍藏一句话","Save a phrase")}</div></div>
+      <div class="func-card" onclick="writeDiary()"><span class="fc-ic">📔</span><div class="fc-t">${L("感受日记","Feelings journal")}</div><div class="fc-d">${L("只有妳可见","Only you can see")}</div></div>
+      <div class="func-card" onclick="reviewCycle()"><span class="fc-ic">🎓</span><div class="fc-t">${L("复盘 / 毕业","Review / Graduate")}</div><div class="fc-d">${L("为这段画个句点","Close this chapter")}</div></div>`;
     if(isMentor(r) && !CLOUD.enabled){
-      html+=`<div class="func-card" onclick="simMenteeCheckin()"><span class="fc-ic">🧪</span><div class="fc-t">模拟mentee打卡</div><div class="fc-d">演示·体验通知</div></div>`;
+      html+=`<div class="func-card" onclick="simMenteeCheckin()"><span class="fc-ic">🧪</span><div class="fc-t">${L("模拟mentee打卡","Simulate check-in")}</div><div class="fc-d">${L("演示·体验通知","Demo · try notes")}</div></div>`;
     }
     html+=`</div>`;
   } else if(r.type==="buddy"){
     const done=r.buddyList.filter(b=>b.done).length;
     html+=`<div class="func-grid" style="margin-top:12px;">
-      <div class="func-card" onclick="openBuddyList()"><span class="fc-ic">📝</span><div class="fc-t">搭子清单</div><div class="fc-d">${done}/${r.buddyList.length} 已完成</div></div>
-      <div class="func-card" onclick="buddyCheckin()"><span class="fc-ic">🌟</span><div class="fc-t">今日打卡</div><div class="fc-d">并肩努力</div></div>
-      <div class="func-card" onclick="writeDiary()"><span class="fc-ic">📔</span><div class="fc-t">感受日记</div><div class="fc-d">只有妳可见</div></div>
-      <div class="func-card" onclick="endRelationship()"><span class="fc-ic">🍃</span><div class="fc-t">结束陪伴</div><div class="fc-d">温柔告别</div></div>
+      <div class="func-card" onclick="openBuddyList()"><span class="fc-ic">📝</span><div class="fc-t">${L("搭子清单","Shared list")}</div><div class="fc-d">${done}/${r.buddyList.length} ${L("已完成","done")}</div></div>
+      <div class="func-card" onclick="buddyCheckin()"><span class="fc-ic">🌟</span><div class="fc-t">${L("今日打卡","Today's check-in")}</div><div class="fc-d">${L("并肩努力","Side by side")}</div></div>
+      <div class="func-card" onclick="writeDiary()"><span class="fc-ic">📔</span><div class="fc-t">${L("感受日记","Feelings journal")}</div><div class="fc-d">${L("只有妳可见","Only you can see")}</div></div>
+      <div class="func-card" onclick="endRelationship()"><span class="fc-ic">🍃</span><div class="fc-t">${L("结束陪伴","End it")}</div><div class="fc-d">${L("温柔告别","A gentle goodbye")}</div></div>
     </div>`;
   } else if(r.type==="company"){
     html+=`<div class="func-grid" style="margin-top:12px;">
-      <div class="func-card" onclick="moodSticker()"><span class="fc-ic">💗</span><div class="fc-t">今天的心情</div><div class="fc-d">不说话也能表达</div></div>
-      <div class="func-card" onclick="voiceNote()"><span class="fc-ic">🎤</span><div class="fc-t">语音小留言</div><div class="fc-d">异步·不催妳</div></div>
-      <div class="func-card" onclick="writeDiary()"><span class="fc-ic">📔</span><div class="fc-t">感受日记</div><div class="fc-d">只有妳可见</div></div>
-      <div class="func-card" onclick="endRelationship()"><span class="fc-ic">🍃</span><div class="fc-t">结束陪伴</div><div class="fc-d">温柔告别</div></div>
+      <div class="func-card" onclick="moodSticker()"><span class="fc-ic">💗</span><div class="fc-t">${L("今天的心情","Today's mood")}</div><div class="fc-d">${L("不说话也能表达","No words needed")}</div></div>
+      <div class="func-card" onclick="voiceNote()"><span class="fc-ic">🎤</span><div class="fc-t">${L("语音小留言","Voice note")}</div><div class="fc-d">${L("异步·不催妳","Async · no rush")}</div></div>
+      <div class="func-card" onclick="writeDiary()"><span class="fc-ic">📔</span><div class="fc-t">${L("感受日记","Feelings journal")}</div><div class="fc-d">${L("只有妳可见","Only you can see")}</div></div>
+      <div class="func-card" onclick="endRelationship()"><span class="fc-ic">🍃</span><div class="fc-t">${L("结束陪伴","End it")}</div><div class="fc-d">${L("温柔告别","A gentle goodbye")}</div></div>
     </div>`;
   }
 
   // 共同底部
-  html+=`<div class="func-card wide" style="margin-top:12px;" onclick="openChat('${r.id}')"><span class="fc-ic">💬</span><div><div class="fc-t">进入聊天</div><div class="fc-d">和 ${o.nick} 说说话</div></div></div>`;
+  html+=`<div class="func-card wide" style="margin-top:12px;" onclick="openChat('${r.id}')"><span class="fc-ic">💬</span><div><div class="fc-t">${L("进入聊天","Open chat")}</div><div class="fc-d">${L("和 "+o.nick+" 说说话","Talk with "+o.nick)}</div></div></div>`;
   html+=`<div style="display:flex;gap:10px;margin-top:10px;">
-    <button class="btn ghost block sm" onclick="togglePause()">${r.paused?"▶️ 恢复关系":"⏸️ 暂停关系"}</button>
-    <button class="btn ghost block sm" onclick="endRelationship()">🍃 结束关系</button></div>
-  <p class="field-hint center" style="margin-top:10px;">妳随时可以暂停或结束，系统不会问原因 🌸</p>`;
+    <button class="btn ghost block sm" onclick="togglePause()">${r.paused?L("▶️ 恢复关系","▶️ Resume"):L("⏸️ 暂停关系","⏸️ Pause")}</button>
+    <button class="btn ghost block sm" onclick="endRelationship()">${L("🍃 结束关系","🍃 End")}</button></div>
+  <p class="field-hint center" style="margin-top:10px;">${L("妳随时可以暂停或结束，系统不会问原因 🌸","You can pause or end anytime — we won't ask why 🌸")}</p>`;
   document.getElementById("rmBody").innerHTML=html;
 }
 
@@ -2385,7 +2402,7 @@ function openChat(relId){
   go("chat");
   const av=document.getElementById("chatAvatar"); av.innerHTML=avInner(o); av.style.cursor="pointer"; av.onclick=()=>viewUser(o.id);
   const nm=document.getElementById("chatName"); nm.textContent=o.nick; nm.style.cursor="pointer"; nm.onclick=()=>viewUser(o.id);
-  document.getElementById("chatRel").textContent=relTypeLabel(activeRel)+(activeRel.paused?" · 已暂停":"");
+  document.getElementById("chatRel").textContent=relTypeLabel(activeRel)+(activeRel.paused?L(" · 已暂停"," · Paused"):"");
   renderChatExtras();
   renderMsgs();
 }
@@ -2395,16 +2412,16 @@ function renderChatExtras(){
   const extra=document.getElementById("chatExtra");
   goalBox.innerHTML=""; extra.innerHTML="";
   if(r.status==="linked"){
-    if(r.type==="mentorship") goalBox.innerHTML=`<div class="goal-banner">🎯 <b>成长目标：</b>${r.goal||"（未填写）"}</div>`;
-    extra.innerHTML=`<span class="chip" onclick="openRelManage('${r.id}')">🏡 关系小屋 · 专属功能</span>`;
+    if(r.type==="mentorship") goalBox.innerHTML=`<div class="goal-banner">🎯 <b>${L("成长目标：","Growth goal: ")}</b>${r.goal||L("（未填写）","(not set yet)")}</div>`;
+    extra.innerHTML=`<span class="chip" onclick="openRelManage('${r.id}')">${L("🏡 关系小屋 · 专属功能","🏡 Room · special tools")}</span>`;
   } else if(r.status==="trial"){
-    let chips=`<span class="chip" onclick="openTrialPanel('${r.id}')">🌤 试聊中 · 接下来怎么走？</span>`;
-    if(r.proposal && r.proposal.by!==DB.currentUserId) chips=`<span class="chip" style="background:#FBE7EC;border-color:var(--rose);" onclick="viewProposal('${r.id}')">💞 对方邀请正式链接 · 查看</span>`+chips;
-    if(r.endTrialBy && r.endTrialBy!==DB.currentUserId) chips=`<span class="chip" style="background:#FCEFE0;border-color:var(--apri);" onclick="respondEndTrial('${r.id}')">🍃 对方想结束试聊 · 回应</span>`+chips;
+    let chips=`<span class="chip" onclick="openTrialPanel('${r.id}')">${L("🌤 试聊中 · 接下来怎么走？","🌤 Trial chat · what's next?")}</span>`;
+    if(r.proposal && r.proposal.by!==DB.currentUserId) chips=`<span class="chip" style="background:#FBE7EC;border-color:var(--rose);" onclick="viewProposal('${r.id}')">${L("💞 对方邀请正式链接 · 查看","💞 She invited a real connection · view")}</span>`+chips;
+    if(r.endTrialBy && r.endTrialBy!==DB.currentUserId) chips=`<span class="chip" style="background:#FCEFE0;border-color:var(--apri);" onclick="respondEndTrial('${r.id}')">${L("🍃 对方想结束试聊 · 回应","🍃 She'd like to end the trial · reply")}</span>`+chips;
     extra.innerHTML=chips;
   } else if(r.status==="casual"){
-    extra.innerHTML=`<span class="chip" onclick="upgradeFromTrial('${r.id}')">💞 升级为深度链接</span>
-      <span class="chip" onclick="writeDiary()">📔 感受日记</span>`;
+    extra.innerHTML=`<span class="chip" onclick="upgradeFromTrial('${r.id}')">${L("💞 升级为深度链接","💞 Upgrade to a deep connection")}</span>
+      <span class="chip" onclick="writeDiary()">${L("📔 感受日记","📔 Feelings journal")}</span>`;
   }
 }
 function openTrialPanel(relId){
