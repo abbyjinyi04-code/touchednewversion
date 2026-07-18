@@ -362,33 +362,34 @@ textarea,input,select{max-width:100%;}
 
   <!-- 1. 欢迎页 -->
   <section id="welcome" class="screen active">
+    <button id="langBtn" onclick="toggleLang()" style="position:absolute;top:14px;right:14px;z-index:5;background:rgba(255,255,255,.7);border:1px solid var(--rose);color:var(--rose);border-radius:14px;padding:4px 12px;font-size:13px;cursor:pointer;">EN</button>
     <div class="welcome-lines" id="welcomeLines">
-      <p class="l0">Hey女孩！喜欢妳来🥰</p>
-      <p>她触是一个全心投入女女链接，致力于女性彼此触碰、点亮的平台</p>
-      <p>我们希望同妳一起探索，妳生命的温度可以如何温暖她人和自己</p>
+      <p class="l0" data-i18n="wel1">Hey女孩！喜欢妳来🥰</p>
+      <p data-i18n="wel2">她触是一个全心投入女女链接，致力于女性彼此触碰、点亮的平台</p>
+      <p data-i18n="wel3">我们希望同妳一起探索，妳生命的温度可以如何温暖她人和自己</p>
     </div>
     <div class="badge-wrap" id="badgeWrap">
       <div class="badge" id="badge"></div>
-      <button class="btn" style="margin-top:24px;font-size:18px;" onclick="imIn()">I'm in ✨</button>
-      <a class="link" style="margin-top:14px;" onclick="welcomeExit()">我再想想</a>
+      <button class="btn" style="margin-top:24px;font-size:18px;" onclick="imIn()" data-i18n="wel_in">I'm in ✨</button>
+      <a class="link" style="margin-top:14px;" onclick="welcomeExit()" data-i18n="wel_later">我再想想</a>
     </div>
   </section>
 
   <!-- 2. 手机验证码登录 / 注册 -->
   <section id="register" class="screen">
     <div class="wrap">
-      <h1>手机号登录 🌷</h1>
-      <p class="muted">收一条验证码即可登录或注册<br>同一手机号永远是同一个账号，换设备/清缓存也找得回数据</p>
-      <label>手机号</label>
-      <input id="otpPhone" type="tel" inputmode="numeric" placeholder="请输入11位手机号" maxlength="11">
+      <h1 data-i18n="login_title">手机号登录 🌷</h1>
+      <p class="muted" data-i18n-html="login_sub">收一条验证码即可登录或注册<br>同一手机号永远是同一个账号，换设备/清缓存也找得回数据</p>
+      <label data-i18n="login_phone">手机号</label>
+      <input id="otpPhone" type="tel" inputmode="numeric" placeholder="请输入11位手机号" data-i18n-ph="login_phone_ph" maxlength="11">
       <div id="otpStep2" style="display:none;">
-        <label>短信验证码</label>
-        <input id="otpCode" type="tel" inputmode="numeric" placeholder="请输入收到的验证码" maxlength="6">
+        <label data-i18n="login_code">短信验证码</label>
+        <input id="otpCode" type="tel" inputmode="numeric" placeholder="请输入收到的验证码" data-i18n-ph="login_code_ph" maxlength="6">
       </div>
       <div class="field-hint" id="otpHint"></div>
-      <button class="btn block" id="otpSendBtn" style="margin-top:20px;" onclick="sendOtp()">发送验证码</button>
-      <button class="btn block" id="otpLoginBtn" style="margin-top:10px;display:none;" onclick="verifyOtpCode()">登录 / 注册 →</button>
-      <p class="center" style="margin-top:16px;"><a class="link" onclick="doLoginDemo()">先用演示账号逛逛（仅本机预览）</a></p>
+      <button class="btn block" id="otpSendBtn" style="margin-top:20px;" onclick="sendOtp()" data-i18n="login_send">发送验证码</button>
+      <button class="btn block" id="otpLoginBtn" style="margin-top:10px;display:none;" onclick="verifyOtpCode()" data-i18n="login_go">登录 / 注册 →</button>
+      <p class="center" style="margin-top:16px;"><a class="link" onclick="doLoginDemo()" data-i18n="login_demo">先用演示账号逛逛（仅本机预览）</a></p>
     </div>
   </section>
 
@@ -403,7 +404,7 @@ textarea,input,select{max-width:100%;}
       <div id="profStep"></div>
       <div style="display:flex;gap:10px;margin-top:24px;">
         <button class="btn ghost" id="profBack" style="display:none;flex:0 0 auto;" onclick="profPrev()">←</button>
-        <button class="btn block" id="profNext" onclick="profNext()">下一步</button>
+        <button class="btn block" id="profNext" onclick="profNext()" data-i18n="btn_next">下一步</button>
       </div>
     </div>
   </section>
@@ -412,20 +413,20 @@ textarea,input,select{max-width:100%;}
   <section id="home" class="screen">
     <div class="topbar">
       <div class="tabs" style="flex:1;">
-        <div class="tab on" id="tabWorry" onclick="switchHomeTab('worry')">💭 烦恼屋</div>
-        <div class="tab" id="tabParty" onclick="switchHomeTab('party')">🎉 派对屋</div>
+        <div class="tab on" id="tabWorry" onclick="switchHomeTab('worry')" data-i18n="tab_worry">💭 烦恼屋</div>
+        <div class="tab" id="tabParty" onclick="switchHomeTab('party')" data-i18n="tab_party">🎉 派对屋</div>
       </div>
     </div>
     <div class="wrap has-tabbar" id="homeBody"></div>
   </section>
 
   <section id="touch" class="screen">
-    <div class="topbar"><h2>💬 触碰</h2></div>
+    <div class="topbar"><h2 data-i18n="top_touch">💬 触碰</h2></div>
     <div class="wrap has-tabbar" id="touchBody"></div>
   </section>
 
   <section id="aware" class="screen">
-    <div class="topbar"><h2>✨ 她意识</h2></div>
+    <div class="topbar"><h2 data-i18n="top_aware">✨ 她意识</h2></div>
     <div class="wrap has-tabbar" id="awareBody"></div>
   </section>
 
@@ -448,8 +449,8 @@ textarea,input,select{max-width:100%;}
     <div id="chatExtra" class="chat-tools"></div>
     <div class="msgs" id="chatMsgs"></div>
     <div class="chat-input">
-      <textarea id="chatText" rows="1" placeholder="说点什么…"></textarea>
-      <button class="btn sm" onclick="sendChat()">发送</button>
+      <textarea id="chatText" rows="1" placeholder="说点什么…" data-i18n-ph="chat_ph"></textarea>
+      <button class="btn sm" onclick="sendChat()" data-i18n="chat_send">发送</button>
     </div>
   </section>
 
@@ -473,10 +474,10 @@ textarea,input,select{max-width:100%;}
 
   <!-- 底部导航 -->
   <nav id="tabbar">
-    <div class="nav-item on" data-screen="home" onclick="navTo('home')"><span class="ic">🏠</span>首页</div>
-    <div class="nav-item" data-screen="touch" onclick="navTo('touch')"><span class="ic">💬</span>触碰</div>
-    <div class="nav-item" data-screen="aware" onclick="navTo('aware')"><span class="ic">✨</span>她意识</div>
-    <div class="nav-item" data-screen="me" onclick="navTo('me')"><span class="ic">👤</span>我的</div>
+    <div class="nav-item on" data-screen="home" onclick="navTo('home')"><span class="ic">🏠</span><span data-i18n="nav_home">首页</span></div>
+    <div class="nav-item" data-screen="touch" onclick="navTo('touch')"><span class="ic">💬</span><span data-i18n="nav_touch">触碰</span></div>
+    <div class="nav-item" data-screen="aware" onclick="navTo('aware')"><span class="ic">✨</span><span data-i18n="nav_aware">她意识</span></div>
+    <div class="nav-item" data-screen="me" onclick="navTo('me')"><span class="ic">👤</span><span data-i18n="nav_me">我的</span></div>
   </nav>
 
   <!-- Tutorial -->
@@ -676,6 +677,80 @@ const CLOUDBASE_REGION = "ap-shanghai";   // 若环境在广州填 ap-guangzhou�
    她触 Touched · MVP 原型  (单文件 / 本地+云同步)
    ========================================================= */
 "use strict";
+/* =========================================================
+   🌐 i18n 双语引擎（中文 zh / 英文 en）
+   - LANG 默认跟随手机语言，可手动切换并记住
+   - t("key") 取当前语言文案；静态 HTML 用 data-i18n 属性
+   - 语气：Plain & warm；招牌功能命名：Mixed（品牌名+直白词）
+   ========================================================= */
+let LANG = (function(){
+  try{ const saved=localStorage.getItem("touched_lang"); if(saved==="zh"||saved==="en") return saved; }catch(e){}
+  try{ return (navigator.language||"zh").toLowerCase().indexOf("zh")===0 ? "zh" : "en"; }catch(e){ return "zh"; }
+})();
+const STR = {
+  /* —— 招牌功能名（Mixed 风格） —— */
+  brand:{zh:"她触",en:"Touched"},
+  nav_home:{zh:"首页",en:"Home"},
+  nav_touch:{zh:"触碰",en:"Connections"},
+  nav_aware:{zh:"她意识",en:"Herstory"},
+  nav_me:{zh:"我的",en:"Me"},
+  tab_worry:{zh:"💭 烦恼屋",en:"💭 the Nest"},
+  tab_party:{zh:"🎉 派对屋",en:"🎉 the Lounge"},
+  top_touch:{zh:"💬 触碰",en:"💬 Connections"},
+  top_aware:{zh:"✨ 她意识",en:"✨ Herstory"},
+  /* —— 欢迎页 —— */
+  wel1:{zh:"Hey女孩！喜欢妳来🥰",en:"Hey — so glad you're here 🥰"},
+  wel2:{zh:"她触是一个全心投入女女链接，致力于女性彼此触碰、点亮的平台",en:"Touched is a space for women to reach each other — to be seen, and to light each other up."},
+  wel3:{zh:"我们希望同妳一起探索，妳生命的温度可以如何温暖她人和自己",en:"We'd love to explore, with you, how the warmth of your life can warm others and yourself."},
+  wel_in:{zh:"I'm in ✨",en:"I'm in ✨"},
+  wel_later:{zh:"我再想想",en:"Maybe later"},
+  /* —— 登录 —— */
+  login_title:{zh:"手机号登录 🌷",en:"Sign in 🌷"},
+  login_sub:{zh:"收一条验证码即可登录或注册<br>同一手机号永远是同一个账号，换设备/清缓存也找得回数据",en:"One text code signs you in or creates your account.<br>Same number = same account — your data follows you across devices."},
+  login_phone:{zh:"手机号",en:"Phone number"},
+  login_phone_ph:{zh:"请输入11位手机号",en:"Enter your phone number"},
+  login_code:{zh:"短信验证码",en:"Verification code"},
+  login_code_ph:{zh:"请输入收到的验证码",en:"Enter the code you got"},
+  login_send:{zh:"发送验证码",en:"Send code"},
+  login_go:{zh:"登录 / 注册 →",en:"Sign in / Sign up →"},
+  login_demo:{zh:"先用演示账号逛逛（仅本机预览）",en:"Just look around with a demo account (local only)"},
+  /* —— 主按钮 / 通用 —— */
+  btn_post:{zh:"＋ 发帖",en:"＋ Post"},
+  btn_ask:{zh:"＋ 发问",en:"＋ Ask"},
+  btn_next:{zh:"下一步",en:"Next"},
+  act_skip:{zh:"跳过 →",en:"Skip →"},
+  act_touch:{zh:"轻触 🤍",en:"Touch 🤍"},
+  act_hand:{zh:"拉手 🤝",en:"Reach out 🤝"},
+  act_follow:{zh:"＋ 关注",en:"＋ Follow"},
+  act_following:{zh:"✓ 已关注",en:"✓ Following"},
+  act_dm:{zh:"💬 私聊",en:"💬 Message"},
+  act_report:{zh:"举报",en:"Report"},
+  act_block:{zh:"屏蔽",en:"Block"},
+  chat_ph:{zh:"说点什么…",en:"Say something…"},
+  chat_send:{zh:"发送",en:"Send"},
+  /* —— 她意识头图三行 —— */
+  aware_l1:{zh:"妳的生命曾经怎样流动过",en:"where your life has flowed"},
+  aware_l2:{zh:"妳的生命正在流经什么",en:"what it's moving through now"},
+  aware_l3:{zh:"妳的生命未来将要流向哪一片海域",en:"and which sea it's carrying you toward"},
+  aware_note:{zh:"在这里留下妳的故事，被看见。只能「轻触🤍」表示看见、不能评论，故事永久留存。",en:"Leave your story here, and be seen. You can only \"Touch 🤍\" to say you saw it — no comments. Stories stay forever."},
+  aware_leave:{zh:"＋ 留下我的故事",en:"＋ Leave my story"},
+};
+function t(key){ const e=STR[key]; if(!e) return key; return (e[LANG]!=null?e[LANG]:e.zh); }
+function setLang(l){
+  if(l!==LANG){ LANG=l; try{localStorage.setItem("touched_lang",l);}catch(e){} }
+  try{ document.documentElement.lang = (LANG==="zh"?"zh-CN":"en"); }catch(e){}
+  applyStaticI18n();
+  try{ if(typeof rerenderCurrent==="function") rerenderCurrent(); }catch(e){}
+  try{ if(typeof currentScreen!=="undefined"){ if(currentScreen==="home"&&typeof renderHome==="function")renderHome(); if(currentScreen==="aware"&&typeof renderAware==="function")renderAware(); } }catch(e){}
+}
+function toggleLang(){ setLang(LANG==="zh"?"en":"zh"); }
+/* 把带 data-i18n / data-i18n-html / data-i18n-ph 的静态元素按当前语言刷新 */
+function applyStaticI18n(){
+  document.querySelectorAll("[data-i18n]").forEach(el=>{ el.textContent=t(el.getAttribute("data-i18n")); });
+  document.querySelectorAll("[data-i18n-html]").forEach(el=>{ el.innerHTML=t(el.getAttribute("data-i18n-html")); });
+  document.querySelectorAll("[data-i18n-ph]").forEach(el=>{ el.setAttribute("placeholder", t(el.getAttribute("data-i18n-ph"))); });
+  const lb=document.getElementById("langBtn"); if(lb) lb.textContent = (LANG==="zh"?"EN":"中文");
+}
 /* ---------- 存储层 ---------- */
 const DB_KEY = "touched_db_v1";
 let DB = null;
@@ -1401,7 +1476,7 @@ function renderWorry(){
   const reg={ice:["ice","🧊 冰川区"],warm:["warm","🌤 微暖区"],hot:["hot","🔥 急热区"]}[q.region];
   body.innerHTML=`
     <div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:2px;">
-      <button class="btn sm" onclick="startAsk()">＋ 发问</button></div>
+      <button class="btn sm" onclick="startAsk()">${t("btn_ask")}</button></div>
     <div class="qcard" id="qcard">
       <div>
         <span class="tag ${reg[0]}">${reg[1]}</span>
@@ -1410,9 +1485,9 @@ function renderWorry(){
       <div class="qcontent">${escapeHtml(q.content)}</div>
       <div class="qmeta"><span style="cursor:pointer;" onclick="viewUser('${q.authorId}')">${a.emoji} ${a.nick} · ${a.age}岁 · ${a.country}${a.region?(" "+a.region):""}</span>${q.createdAt?` · ${fmtTime(q.createdAt)}`:""} · <span class="link" style="font-size:12px;" onclick="reportContent('question','${q.id}','${q.authorId}')">举报</span></div>
       <div class="qactions">
-        <button class="btn ghost" onclick="skipQuestion('${q.id}')">跳过 →</button>
-        <button class="btn lav" onclick="openTouchPanel('${q.id}')">轻触 🤍</button>
-        <button class="btn" onclick="initiateHand('${q.id}')">拉手 🤝</button>
+        <button class="btn ghost" onclick="skipQuestion('${q.id}')">${t("act_skip")}</button>
+        <button class="btn lav" onclick="openTouchPanel('${q.id}')">${t("act_touch")}</button>
+        <button class="btn" onclick="initiateHand('${q.id}')">${t("act_hand")}</button>
       </div>
     </div>`;
 }
@@ -1507,7 +1582,7 @@ function sendTouch(){
 /* ---- 派对屋 ---- */
 function renderParty(){
   const body=document.getElementById("homeBody");
-  let html=`<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><button class="btn sm" onclick="openComposePost()">＋ 发帖</button></div>`;
+  let html=`<div style="display:flex;justify-content:flex-end;margin-bottom:6px;"><button class="btn sm" onclick="openComposePost()">${t("btn_post")}</button></div>`;
   const posts=DB.posts.filter(p=>!p.hidden && !isBlocked(p.authorId));   // 稳定顺序（最新在前）；过滤已屏蔽的人
   if(!posts.length) html+=`<div class="empty">还没有动态，来发第一条吧🎉</div>`;
   posts.forEach(p=>{
@@ -1523,7 +1598,7 @@ function renderParty(){
         <span class="${liked?"on":""}" onclick="toggleLike('${p.id}')">${liked?"❤️":"🤍"} ${p.likes.length}</span>
         <span onclick="openComments('${p.id}')">💬 ${p.comments.length}</span>
         <span class="${saved?"on":""}" onclick="toggleSave('${p.id}')">${saved?"⭐":"☆"} 收藏</span>
-        ${mine?"":`<span style="margin-left:auto;color:var(--ink-soft);font-size:12px;" onclick="reportContent('post','${p.id}','${p.authorId}')">举报</span>`}
+        ${mine?"":`<span style="margin-left:auto;color:var(--ink-soft);font-size:12px;" onclick="reportContent('post','${p.id}','${p.authorId}')">${t("act_report")}</span>`}
       </div>
       ${p.comments.filter(c=>!c.hidden && !isBlocked(c.by)).map(c=>commentLine(c)).join("")}
     </div>`;
@@ -2516,10 +2591,10 @@ function renderAware(){
   const body=document.getElementById("awareBody");
   const stories=[...DB.stories].filter(s=>!s.hidden && !isBlocked(s.authorId)).sort((a,b)=>b.createdAt-a.createdAt);
   let html=`<div class="card" style="text-align:center;background:linear-gradient(135deg,#F3E9F5,#FBE7EC);">
-      <div style="font-size:16px;line-height:2;color:var(--ink);font-weight:500;">妳的生命曾经怎样流动过<br>妳的生命正在流经什么<br>妳的生命未来将要流向哪一片海域</div>
-      <p class="muted" style="font-size:13px;margin:10px 0 0;">在这里留下妳的故事，被看见。只能「轻触🤍」表示看见、不能评论，故事永久留存。</p>
+      <div style="font-size:16px;line-height:2;color:var(--ink);font-weight:500;">${t("aware_l1")}<br>${t("aware_l2")}<br>${t("aware_l3")}</div>
+      <p class="muted" style="font-size:13px;margin:10px 0 0;">${t("aware_note")}</p>
     </div>
-    <button class="btn block" style="margin:14px 0;" onclick="openStoryCompose()">＋ 留下我的故事</button>`;
+    <button class="btn block" style="margin:14px 0;" onclick="openStoryCompose()">${t("aware_leave")}</button>`;
   stories.forEach(s=>{
     const touched=s.touches.includes(DB.currentUserId);
     html+=`<div class="story">
@@ -2591,6 +2666,7 @@ function renderMe(){
       <div class="menu-item" onclick="showCompanions()">🤝 陪伴关系<span>${companions.length} ›</span></div>
       ${grad.length?`<div class="menu-item" style="background:linear-gradient(135deg,#FCEFE3,#FBE7EC);">🎓 她陪我走过<span>${grad.join("、")}</span></div>`:""}
       <div class="menu-item" onclick="changeBg()">🖼️ 更换背景图<span>›</span></div>
+      <div class="menu-item" onclick="toggleLang()">🌐 语言 / Language<span>${LANG==="zh"?"中文":"English"} ›</span></div>
       ${myBlocked().length?`<div class="menu-item" onclick="showBlocked()">🙈 已屏蔽的人<span>${myBlocked().length} ›</span></div>`:""}
       <div class="menu-item" onclick="openAdminGate()" style="opacity:.7;font-size:13px;">🛠️ 开发者入口<span class="muted" style="font-weight:400;">需口令 ›</span></div>
       <div class="menu-item" onclick="logout()" style="color:#D2615E;justify-content:center;">退出登录</div>
@@ -2718,10 +2794,10 @@ async function viewUser(id){
       <p class="muted" style="font-size:13px;margin-top:6px;">${u.sign?escapeHtml(u.sign):""}</p>
       <span class="temp-pill" style="margin-top:6px;background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">❤️ 帖子共获 ${likes} 赞</span>
     </div>
-    ${blocked?`<p class="center muted" style="margin-top:14px;">妳已屏蔽她。<span class="link" onclick="toggleBlock('${id}')">解除屏蔽</span></p>`:`
+    ${blocked?`<p class="center muted" style="margin-top:14px;">${LANG==="zh"?"妳已屏蔽她。":"You've blocked her. "}<span class="link" onclick="toggleBlock('${id}')">${LANG==="zh"?"解除屏蔽":"Unblock"}</span></p>`:`
     <div style="display:flex;gap:10px;margin-top:14px;">
-      <button class="btn ${following?"ghost":""}" style="flex:1;" onclick="toggleFollow('${id}')">${following?"✓ 已关注":"＋ 关注"}</button>
-      <button class="btn" style="flex:1;" onclick="closeSheet();openChatWith('${id}')">💬 私聊</button>
+      <button class="btn ${following?"ghost":""}" style="flex:1;" onclick="toggleFollow('${id}')">${following?t("act_following"):t("act_follow")}</button>
+      <button class="btn" style="flex:1;" onclick="closeSheet();openChatWith('${id}')">${t("act_dm")}</button>
     </div>`}
     ${u.status||u.phase?`<div class="bubbles" style="justify-content:center;margin-top:12px;">${u.status?`<span class="bubble">${u.status}</span>`:""}${u.phase?`<span class="bubble lav">${u.phase}</span>`:""}</div>`:""}
     ${u.hobbies&&u.hobbies.length?`<div class="section-title">爱好</div><div class="bubbles">${u.hobbies.slice(0,12).map(h=>`<span class="bubble">${escapeHtml(h)}</span>`).join("")}</div>`:""}
@@ -2730,7 +2806,7 @@ async function viewUser(id){
     ${herQ.length?`<div class="section-title">她发过的问题（${herQ.length}）</div>${herQ.slice(0,5).map(q=>`<div class="comment">💭 ${escapeHtml((q.content||"").slice(0,60))}${(q.content||"").length>60?"…":""}</div>`).join("")}`:""}
     ${!herP.length&&!herQ.length?`<p class="center muted" style="margin-top:12px;font-size:13px;">她还没有公开的帖子或问题</p>`:""}
     <div class="center" style="margin-top:16px;font-size:12px;color:var(--ink-soft);">
-      <span class="link" onclick="reportContent('user','${id}','${id}')">举报</span>${blocked?"":` · <span class="link" onclick="toggleBlock('${id}')">屏蔽</span>`}
+      <span class="link" onclick="reportContent('user','${id}','${id}')">${t("act_report")}</span>${blocked?"":` · <span class="link" onclick="toggleBlock('${id}')">${t("act_block")}</span>`}
     </div>`);
 }
 function showMyPosts(){
@@ -3121,6 +3197,7 @@ function boot(){
   }
 }
 window.addEventListener("hashchange", ()=>{ if(checkAdminHash()) openAdminGate(); });
+try{ document.documentElement.lang = (LANG==="zh"?"zh-CN":"en"); applyStaticI18n(); }catch(e){}
 boot();
 </script>
 </body>
