@@ -396,8 +396,8 @@ textarea,input,select{max-width:100%;}
   <!-- 3. 个人档案 -->
   <section id="profile" class="screen">
     <div class="topbar">
-      <h2 id="profTitle">完善档案</h2>
-      <a class="link" id="profSkipLayer" style="display:none;" onclick="skipOptional()">暂时跳过</a>
+      <h2 id="profTitle" data-i18n="prof_title">完善档案</h2>
+      <a class="link" id="profSkipLayer" style="display:none;" onclick="skipOptional()" data-i18n="prof_skip">暂时跳过</a>
     </div>
     <div class="wrap">
       <div class="progress"><i id="profBar" style="width:0%"></i></div>
@@ -734,10 +734,43 @@ const STR = {
   aware_l3:{zh:"妳的生命未来将要流向哪一片海域",en:"How We Make Miracles"},
   aware_note:{zh:"在这里留下妳的故事，被看见。只能「轻触🤍」表示看见、不能评论，故事永久留存。",en:"Leave your story here, and be seen. You can only \"Touch 🤍\" to say you saw it — no comments. Stories stay forever."},
   aware_leave:{zh:"＋ 留下我的故事",en:"＋ Leave my story"},
+  prof_title:{zh:"完善档案",en:"Set up your profile"},
+  prof_skip:{zh:"暂时跳过",en:"Skip for now"},
 };
 function t(key){ const e=STR[key]; if(!e) return key; return (e[LANG]!=null?e[LANG]:e.zh); }
 /* 内联双语助手：一次性文案用 L("中文","English")，比建 key 更省事 */
 function L(zh, en){ return LANG==="en" ? en : zh; }
+/* 选项/地名翻译表：数据里始终存中文原值（匹配逻辑不变），只在「显示」时翻成英文 */
+const OPT_EN={
+  // 状态
+  "在校学生":"Student","homeschool":"Homeschooling","gap中":"On a gap year","求职中":"Job hunting","职场打拼中":"Grinding at work","运营自己的事业":"Running my own thing","跳槽中":"Switching jobs","创业中":"Building a startup","自由职业":"Freelancing","边学边工作":"Working & studying","已退休":"Retired",
+  // 处境
+  "迷茫期":"Feeling lost","转型期":"In transition","低谷期":"In a low","上升期":"On the rise","平稳期":"Steady","好转期":"Getting better",
+  // 需求
+  "学业":"Studies","职业":"Career","创业":"Startup","副业":"Side hustle","人际关系":"Relationships","情感":"Love & feelings","自我探索":"Self-discovery","心理疗愈":"Healing","经济和理财":"Money & finance","兴趣发展":"Hobbies","目前不迷茫（老娘is thriving！🔥）":"I'm thriving right now 🔥",
+  // 目的 / 时间
+  "找mentor":"Find a mentor","做mentor":"Be a mentor","都可以":"Either works","轻量偶尔":"Light & occasional","每周固定":"Weekly & steady","较多时间":"Lots of time","随缘":"Whenever it flows",
+  // 爱好
+  "阅读":"Reading","写作":"Writing","音乐":"Music","唱歌":"Singing","乐器":"Instruments","绘画":"Drawing","摄影":"Photography","电影":"Film","音乐剧":"Musicals","戏剧":"Theatre","舞蹈":"Dance","追星":"Fandom","二次元":"Anime","游戏":"Gaming","电竞":"Esports","时尚穿搭":"Fashion","美妆":"Makeup","香水":"Perfume","手工":"Crafts","编织":"Knitting","烘焙":"Baking","料理":"Cooking","咖啡":"Coffee","茶道":"Tea","运动健身":"Fitness","瑜伽":"Yoga","骑行":"Cycling","徒步":"Hiking","游泳":"Swimming","旅行":"Travel","露营":"Camping","园艺":"Gardening","宠物":"Pets","冥想":"Meditation","塔罗":"Tarot","占星":"Astrology","编程":"Coding","设计":"Design","投资理财":"Investing","志愿公益":"Volunteering","女权议题":"Feminism",
+  // 擅长
+  "学术研究":"Research","文字创作":"Writing","视觉设计":"Visual design","音乐制作":"Music production","视频剪辑":"Video editing","编程开发":"Programming","产品设计":"Product design","市场营销":"Marketing","社群运营":"Community","创业经验":"Startups","职场晋升":"Career growth","留学申请":"Study abroad","语言学习":"Languages","心理支持":"Emotional support","情感陪伴":"Companionship","法律知识":"Legal","财务规划":"Finance","教育经验":"Teaching",
+  // 性格
+  "温柔":"Gentle","理性":"Rational","感性":"Sensitive","直接":"Direct","细腻":"Thoughtful","幽默":"Funny","独立":"Independent","包容":"Accepting","好奇":"Curious","认真":"Earnest","随性":"Easygoing","内敛":"Reserved","开朗":"Cheerful","敏感":"Highly sensitive","坚韧":"Resilient","浪漫":"Romantic","务实":"Practical","有创意":"Creative","话少但有料":"Quiet but deep","碎碎念选手":"A bit of a rambler",
+  // 经历
+  "家庭创伤":"Family trauma","亲密关系困境":"Relationship struggles","校园霸凌":"Bullying","职场困境":"Work struggles","创业挫折":"Startup setbacks","考试失利":"Exam setbacks","留学经历":"Studied abroad","跨文化生活":"Living across cultures","心理健康挑战":"Mental health","自我认同探索":"Finding identity","性别身份探索":"Gender identity","经济困难":"Money hardship","独立生活":"Living independently","创业成功":"Startup wins","自我疗愈完成":"Healed & whole","找到人生方向":"Found my direction",
+  // 发问领域 / 优先级
+  "心理":"Mind","兴趣":"Interests","人际":"People","其她":"Other",
+  "距离近优先":"Nearby first","专业背景优先":"Expertise first","相似经历优先":"Shared experience first","沟通舒适优先":"Good rapport first","快速响应优先":"Quick to reply first",
+  // MBTI 其她
+  "其她/不确定":"Other / not sure",
+  // 国家
+  "中国":"China","美国":"USA","英国":"UK","加拿大":"Canada","澳大利亚":"Australia","日本":"Japan","新加坡":"Singapore","其她国家/地区":"Other",
+  // 省 / 地区
+  "北京":"Beijing","天津":"Tianjin","上海":"Shanghai","重庆":"Chongqing","河北":"Hebei","山西":"Shanxi","内蒙古":"Inner Mongolia","辽宁":"Liaoning","吉林":"Jilin","黑龙江":"Heilongjiang","江苏":"Jiangsu","浙江":"Zhejiang","安徽":"Anhui","福建":"Fujian","江西":"Jiangxi","山东":"Shandong","河南":"Henan","湖北":"Hubei","湖南":"Hunan","广东":"Guangdong","广西":"Guangxi","海南":"Hainan","四川":"Sichuan","贵州":"Guizhou","云南":"Yunnan","西藏":"Tibet","陕西":"Shaanxi","甘肃":"Gansu","青海":"Qinghai","宁夏":"Ningxia","新疆":"Xinjiang","香港":"Hong Kong","澳门":"Macau","台湾":"Taiwan",
+  "加州":"California","纽约":"New York","德州":"Texas","华盛顿州":"Washington","马萨诸塞州":"Massachusetts","伊利诺伊州":"Illinois","伦敦":"London","曼彻斯特":"Manchester","爱丁堡":"Edinburgh","多伦多":"Toronto","温哥华":"Vancouver","蒙特利尔":"Montreal","悉尼":"Sydney","墨尔本":"Melbourne","布里斯班":"Brisbane","东京":"Tokyo","大阪":"Osaka","京都":"Kyoto","其她地区":"Other","其她":"Other",
+};
+/* 翻译一个选项/地名用于「显示」（存储仍用中文原值） */
+function optT(zh){ return LANG==="en" ? (OPT_EN[zh]||zh) : zh; }
 function setLang(l){
   if(l!==LANG){ LANG=l; try{localStorage.setItem("touched_lang",l);}catch(e){} }
   try{ document.documentElement.lang = (LANG==="zh"?"zh-CN":"en"); }catch(e){}
@@ -1309,40 +1342,45 @@ const PROF_STEPS=[
   {layer:3,key:"traits",type:"multi",q:"性格关键词？（选填，可多选+自定义）",emoji:"✨",opts:TRAITS,custom:true,optional:true},
   {layer:3,key:"exp",type:"multi",q:"妳经历过的事？（选填，可多选+自定义）",emoji:"🌊",opts:EXP,custom:true,optional:true},
 ];
+/* 档案步骤问题 / 提示的英文（按 key 查） */
+const PROF_Q_EN={ nick:"What should others call you? 😊", age:"How old are you?", loc:"Where are you?", status:"What are you up to these days?", phase:"How are things lately?", needs:"Where could you use support? (pick any)", purpose:"What brings you here?", time:"How much time can you give?", hobbies:"What do you love? (pick any + add your own)", mbti:"Your MBTI type?", skills:"What are you good at? (pick any + add your own)", traits:"A few words that describe you? (optional)", exp:"What have you been through? (optional)" };
+const PROF_PH_EN={ nick:"Pick a nickname" };
+function profLayerName(layer){ return LANG==="en" ? {1:"Step 1 · The basics",2:"Step 2 · What matters for matching",3:"Step 3 · Optional (more detail = better matches 💫)"}[layer] : {1:"第一层 · 基础信息",2:"第二层 · 核心匹配",3:"第三层 · 选填（越详细匹配越准确💫）"}[layer]; }
 function startProfile(){ profDraft={nick:"",age:24,country:"中国",region:"",status:"",phase:"",needs:[],purpose:"",time:"",hobbies:[],mbti:"",skills:[],traits:[],exp:[]}; profStepIdx=0; go("profile"); renderProfStep(); }
 
 function renderProfStep(){
   const s=PROF_STEPS[profStepIdx];
   const total=PROF_STEPS.length;
   document.getElementById("profBar").style.width=((profStepIdx)/total*100)+"%";
-  const layerName={1:"第一层 · 基础信息",2:"第二层 · 核心匹配",3:"第三层 · 选填（越详细匹配越准确💫）"}[s.layer];
-  document.getElementById("profTitle").textContent=layerName;
+  document.getElementById("profTitle").textContent=profLayerName(s.layer);
   document.getElementById("profSkipLayer").style.display = s.optional?"block":"none";
   document.getElementById("profBack").style.display = profStepIdx>0?"block":"none";
   const box=document.getElementById("profStep");
-  let html=`<div class="card" style="animation:fadeUp .4s ease both;"><div style="font-size:34px;text-align:center;margin-bottom:6px;">${s.emoji}</div><h2 class="center">${s.q}</h2>`;
-  if(s.optional) html+=`<p class="center field-hint">选填 · 越详细匹配越准确 💫</p>`;
+  const qText = LANG==="en" ? (PROF_Q_EN[s.key]||s.q) : s.q;
+  let html=`<div class="card" style="animation:fadeUp .4s ease both;"><div style="font-size:34px;text-align:center;margin-bottom:6px;">${s.emoji}</div><h2 class="center">${qText}</h2>`;
+  if(s.optional) html+=`<p class="center field-hint">${L("选填 · 越详细匹配越准确 💫","Optional · more detail means better matches 💫")}</p>`;
   html+="<div style='margin-top:14px;'>";
   if(s.type==="text"){
-    html+=`<input id="pf_input" placeholder="${s.ph}" value="${profDraft[s.key]||""}">`;
+    const ph = LANG==="en" ? (PROF_PH_EN[s.key]||s.ph) : s.ph;
+    html+=`<input id="pf_input" placeholder="${ph}" value="${profDraft[s.key]||""}">`;
   } else if(s.type==="age"){
     html+=`<div class="center" style="font-size:40px;font-weight:700;color:var(--rose);" id="ageShow">${profDraft.age}</div>
       <input type="range" min="14" max="70" value="${profDraft.age}" id="pf_age" oninput="document.getElementById('ageShow').textContent=this.value" style="padding:0;border:none;box-shadow:none;">`;
   } else if(s.type==="loc"){
-    html+=`<label>国家</label><select id="pf_country" onchange="onCountryChange()">${Object.keys(COUNTRIES).map(c=>`<option ${c===profDraft.country?"selected":""}>${c}</option>`).join("")}</select>
-      <label>地区/省份</label><select id="pf_region">${COUNTRIES[profDraft.country||"中国"].map(r=>`<option ${r===profDraft.region?"selected":""}>${r}</option>`).join("")}</select>`;
+    html+=`<label>${L("国家","Country")}</label><select id="pf_country" onchange="onCountryChange()">${Object.keys(COUNTRIES).map(c=>`<option value="${c}" ${c===profDraft.country?"selected":""}>${optT(c)}</option>`).join("")}</select>
+      <label>${L("地区/省份","Region")}</label><select id="pf_region">${COUNTRIES[profDraft.country||"中国"].map(r=>`<option value="${r}" ${r===profDraft.region?"selected":""}>${optT(r)}</option>`).join("")}</select>`;
   } else if(s.type==="select"){
-    html+=`<select id="pf_select" onchange="profDraft['${s.key}']=this.value;updateProfNext()"><option value="">请选择</option>${s.opts.map(o=>`<option ${o===profDraft[s.key]?"selected":""}>${o}</option>`).join("")}</select>`;
+    html+=`<select id="pf_select" onchange="profDraft['${s.key}']=this.value;updateProfNext()"><option value="">${L("请选择","Please choose")}</option>${s.opts.map(o=>`<option value="${o}" ${o===profDraft[s.key]?"selected":""}>${optT(o)}</option>`).join("")}</select>`;
   } else if(s.type==="single"||s.type==="multi"){
     const cur=profDraft[s.key];
     html+=`<div class="bubbles" id="pf_bubbles">`;
     s.opts.forEach(o=>{
       const on = s.type==="single" ? cur===o : Array.isArray(cur)&&cur.includes(o);
       const cls = "bubble "+(s.style||"")+(on?" on":"");
-      html+=`<span class="${cls}" onclick="toggleProfBubble(this,'${s.key}','${s.type}','${o.replace(/'/g,"\\'")}')">${o}</span>`;
+      html+=`<span class="${cls}" onclick="toggleProfBubble(this,'${s.key}','${s.type}','${o.replace(/'/g,"\\'")}')">${optT(o)}</span>`;
     });
     html+=`</div>`;
-    if(s.custom) html+=`<div style="display:flex;gap:8px;margin-top:10px;"><input id="pf_custom" placeholder="自定义填写…" style="flex:1;"><button class="btn sm" onclick="addCustom('${s.key}','${s.style||""}')">添加</button></div>`;
+    if(s.custom) html+=`<div style="display:flex;gap:8px;margin-top:10px;"><input id="pf_custom" placeholder="${L("自定义填写…","Add your own…")}" style="flex:1;"><button class="btn sm" onclick="addCustom('${s.key}','${s.style||""}')">${L("添加","Add")}</button></div>`;
   }
   html+="</div></div>";
   box.innerHTML=html;
@@ -1351,7 +1389,7 @@ function renderProfStep(){
 function onCountryChange(){
   const c=document.getElementById("pf_country").value;
   profDraft.country=c;
-  document.getElementById("pf_region").innerHTML=COUNTRIES[c].map(r=>`<option>${r}</option>`).join("");
+  document.getElementById("pf_region").innerHTML=COUNTRIES[c].map(r=>`<option value="${r}">${optT(r)}</option>`).join("");
 }
 function toggleProfBubble(el,key,type,val){
   if(type==="single"){
@@ -1395,7 +1433,7 @@ function stepValid(){
 function updateProfNext(){
   const btn=document.getElementById("profNext");
   btn.disabled=!stepValid();
-  btn.textContent = editSingle ? "保存 🌸" : (profStepIdx===PROF_STEPS.length-1 ? "完成档案 🌸" : "下一步");
+  btn.textContent = editSingle ? L("保存 🌸","Save 🌸") : (profStepIdx===PROF_STEPS.length-1 ? L("完成档案 🌸","Finish 🌸") : t("btn_next"));
   const back=document.getElementById("profBack"); if(back) back.style.display = (editSingle||profStepIdx>0)?"block":"none";
 }
 document.addEventListener("input",e=>{ if(e.target.id==="pf_input") updateProfNext(); });
@@ -1429,11 +1467,11 @@ function finishProfile(){
 
 /* ========== 4. 新用户引导 Tutorial ========== */
 const TUT=[
-  {t:"欢迎来到她触🌸",b:"这里是妳专属的温柔角落，让我来带妳逛逛～"},
-  {t:"这里是烦恼屋💭",b:"当妳有困惑或需要支持，可以在这里发出妳的问题，等待同频的姐妹回应。",hl:"tabWorry"},
-  {t:"看到别人的问题🤍",b:"妳可以轻触给她一点温暖，或者拉手🤝发起深度链接～右划可以跳过。"},
-  {t:"派对屋🎉",b:"是妳日常分享生活的地方，可以发帖、点赞、评论，像一个只有姐妹的小世界。",hl:"tabParty"},
-  {t:"她意识✨",b:"是我们共同书写的女性故事档案库，每一个故事都值得被看见。随时可以在这里留下妳的故事。",hl:"navAware"},
+  {t:"欢迎来到她触🌸",b:"这里是妳专属的温柔角落，让我来带妳逛逛～",ten:"Welcome to Touched 🌸",ben:"This is your own gentle corner. Let me show you around~"},
+  {t:"这里是烦恼屋💭",b:"当妳有困惑或需要支持，可以在这里发出妳的问题，等待同频的姐妹回应。",hl:"tabWorry",ten:"This is the Therapy Room 💭",ben:"When something's weighing on you, share it here and wait for someone on your wavelength to reach back."},
+  {t:"看到别人的问题🤍",b:"妳可以轻触给她一点温暖，或者拉手🤝发起深度链接～右划可以跳过。",ten:"When you see someone's post 🤍",ben:"Touch to send a little warmth, or Reach out 🤝 to start a deeper connection. Swipe right to skip."},
+  {t:"派对屋🎉",b:"是妳日常分享生活的地方，可以发帖、点赞、评论，像一个只有姐妹的小世界。",hl:"tabParty",ten:"The Common Room 🎉",ben:"Your everyday space to share life — post, like, comment. Like a little world just for women."},
+  {t:"她意识✨",b:"是我们共同书写的女性故事档案库，每一个故事都值得被看见。随时可以在这里留下妳的故事。",hl:"navAware",ten:"Herstory ✨",ben:"A women's story archive we write together. Every story deserves to be seen. Leave yours anytime."},
 ];
 let tutIdx=0;
 function startTutorial(){ tutIdx=0; document.getElementById("tutorial").classList.add("show"); renderTut(); }
@@ -1443,11 +1481,11 @@ function renderTut(){
   if(s.hl){ const el=s.hl==="navAware"?document.querySelector('.nav-item[data-screen="aware"]'):document.getElementById(s.hl); if(el) el.classList.add("tut-highlight"); }
   const last=tutIdx===TUT.length-1;
   document.getElementById("tutBubble").innerHTML=`
-    <div class="tut-step">第 ${tutIdx+1} / ${TUT.length} 步</div>
-    <h3>${s.t}</h3><p>${s.b}</p>
+    <div class="tut-step">${L("第 "+(tutIdx+1)+" / "+TUT.length+" 步","Step "+(tutIdx+1)+" / "+TUT.length)}</div>
+    <h3>${LANG==="en"?(s.ten||s.t):s.t}</h3><p>${LANG==="en"?(s.ben||s.b):s.b}</p>
     <div class="tut-row">
-      <a class="link" onclick="endTutorial()">跳过</a>
-      <button class="btn sm" onclick="${last?"endTutorial()":"nextTut()"}">${last?"开始探索吧🌷":"下一步 →"}</button>
+      <a class="link" onclick="endTutorial()">${L("跳过","Skip")}</a>
+      <button class="btn sm" onclick="${last?"endTutorial()":"nextTut()"}">${last?L("开始探索吧🌷","Start exploring 🌷"):L("下一步 →","Next →")}</button>
     </div>`;
 }
 function nextTut(){ tutIdx++; renderTut(); }
@@ -1500,7 +1538,7 @@ function renderWorry(){
         <span class="tag dom">🏷️ ${q.domain}</span>
       </div>
       <div class="qcontent">${escapeHtml(q.content)}</div>
-      <div class="qmeta"><span style="cursor:pointer;" onclick="viewUser('${q.authorId}')">${a.emoji} ${a.nick} · ${a.age}岁 · ${a.country}${a.region?(" "+a.region):""}</span>${q.createdAt?` · ${fmtTime(q.createdAt)}`:""} · <span class="link" style="font-size:12px;" onclick="reportContent('question','${q.id}','${q.authorId}')">举报</span></div>
+      <div class="qmeta"><span style="cursor:pointer;" onclick="viewUser('${q.authorId}')">${a.emoji} ${a.nick} · ${a.age}岁 · ${a.country}${a.region?(" "+a.region):""}</span>${q.createdAt?` · ${fmtTime(q.createdAt)}`:""} · <span class="link" style="font-size:12px;" onclick="reportContent('question','${q.id}','${q.authorId}')">${t("act_report")}</span></div>
       <div class="qactions">
         <button class="btn ghost" onclick="skipQuestion('${q.id}')">${t("act_skip")}</button>
         <button class="btn lav" onclick="openTouchPanel('${q.id}')">${t("act_touch")}</button>
@@ -1559,30 +1597,34 @@ function showBrowsed(){
 }
 
 /* ---- 轻触面板 ---- */
-const TOUCH_STICKERS=["🫂抱抱","💪加油","🥹我懂妳","🌸妳不孤单","✋同款处境举手","🤍看见妳","🌈会好的","☕慢慢来","💗心疼妳","🌟妳很棒"];
-const TOUCH_LINES=["妳已经很棒了，真的。","我也经历过，抱抱妳。","慢慢来，妳不是一个人。","这一段很难，但妳正在穿过它。","妳愿意说出来，就已经很勇敢了。","不用急着好起来，我陪着妳。","妳的感受都是合理的。","谢谢妳让我看见妳，妳值得被温柔以待。"];
+const TOUCH_STICKERS_ZH=["🫂抱抱","💪加油","🥹我懂妳","🌸妳不孤单","✋同款处境举手","🤍看见妳","🌈会好的","☕慢慢来","💗心疼妳","🌟妳很棒"];
+const TOUCH_STICKERS_EN=["🫂 Hug","💪 You got this","🥹 I get it","🌸 You're not alone","✋ Same boat","🤍 I see you","🌈 It'll be okay","☕ Take your time","💗 Sending love","🌟 You're amazing"];
+const TOUCH_LINES_ZH=["妳已经很棒了，真的。","我也经历过，抱抱妳。","慢慢来，妳不是一个人。","这一段很难，但妳正在穿过它。","妳愿意说出来，就已经很勇敢了。","不用急着好起来，我陪着妳。","妳的感受都是合理的。","谢谢妳让我看见妳，妳值得被温柔以待。"];
+const TOUCH_LINES_EN=["You're already doing so well, truly.","I've been there too — sending you a hug.","Take it slow; you're not alone.","This part is hard, but you're moving through it.","Just saying it out loud is brave.","No rush to feel better — I'm here with you.","Your feelings all make sense.","Thank you for letting me see you. You deserve tenderness."];
+function TOUCH_STICKERS(){ return LANG==="en"?TOUCH_STICKERS_EN:TOUCH_STICKERS_ZH; }
+function TOUCH_LINES(){ return LANG==="en"?TOUCH_LINES_EN:TOUCH_LINES_ZH; }
 let touchTargetQ=null, touchPick="";
 function openTouchPanel(qid){
   touchTargetQ=qid; touchPick="";
   const q=DB.questions.find(x=>x.id===qid)||{};
   const a=userById(q.authorId)||{nick:"姐妹"};
-  openSheet(`<h3>给她一点温暖 🤍</h3>
-    <div class="rm-goal" style="margin-bottom:6px;">💭 <b>${a.nick}的烦恼：</b>${escapeHtml((q.content||"").slice(0,120))}${(q.content||"").length>120?"…":""}</div>
-    <p class="field-hint">只有发问者本人能看到妳的轻触，发送后才算完成哦</p>
-    <div class="section-title">暖心贴纸</div>
-    <div class="emoji-grid">${TOUCH_STICKERS.map(s=>`<span class="bubble" onclick="pickTouch(this,'${s}')">${s}</span>`).join("")}</div>
-    <div class="section-title">安慰语（点一句直接放入）</div>
-    <div class="preset-lines">${TOUCH_LINES.map(s=>`<span class="bubble" onclick="pickTouchLine('${s.replace(/'/g,"\\'")}')">${s}</span>`).join("")}</div>
-    <div class="section-title">或者，好好对她说（200字内）</div>
-    <textarea id="touchInput" maxlength="200" style="min-height:90px;" placeholder="写下妳想对她说的话…"></textarea>
-    <button class="btn block" style="margin-top:14px;" onclick="sendTouch()">发送轻触 🤍</button>`);
+  openSheet(`<h3>${L("给她一点温暖 🤍","Send her some warmth 🤍")}</h3>
+    <div class="rm-goal" style="margin-bottom:6px;">💭 <b>${L(a.nick+"的烦恼：",a.nick+"'s worry: ")}</b>${escapeHtml((q.content||"").slice(0,120))}${(q.content||"").length>120?"…":""}</div>
+    <p class="field-hint">${L("只有发问者本人能看到妳的轻触，发送后才算完成哦","Only she can see your touch — it's sent once you hit send")}</p>
+    <div class="section-title">${L("暖心贴纸","Warm stickers")}</div>
+    <div class="emoji-grid">${TOUCH_STICKERS().map(s=>`<span class="bubble" onclick="pickTouch(this,'${s}')">${s}</span>`).join("")}</div>
+    <div class="section-title">${L("安慰语（点一句直接放入）","Comforting lines (tap to use)")}</div>
+    <div class="preset-lines">${TOUCH_LINES().map(s=>`<span class="bubble" onclick="pickTouchLine('${s.replace(/'/g,"\\'")}')">${s}</span>`).join("")}</div>
+    <div class="section-title">${L("或者，好好对她说（200字内）","Or say it in your own words (200 max)")}</div>
+    <textarea id="touchInput" maxlength="200" style="min-height:90px;" placeholder="${L("写下妳想对她说的话…","Write what you'd like to say…")}"></textarea>
+    <button class="btn block" style="margin-top:14px;" onclick="sendTouch()">${L("发送轻触 🤍","Send touch 🤍")}</button>`);
 }
 function pickTouch(el,s){ document.querySelectorAll(".emoji-grid .bubble").forEach(b=>b.classList.remove("on")); el.classList.add("on"); touchPick=s; }
 function pickTouchLine(s){ const t=document.getElementById("touchInput"); t.value=s; }
 function sendTouch(){
   const txt=document.getElementById("touchInput").value.trim();
   const content=[touchPick,txt].filter(Boolean).join(" ");
-  if(!content){ toast("先选一个贴纸或写点话呀 🌸","",""); return; }
+  if(!content){ toast(L("先选一个贴纸或写点话呀 🌸","Pick a sticker or write a little something 🌸"),"",""); return; }
   const q=DB.questions.find(x=>x.id===touchTargetQ);
   const item={by:DB.currentUserId, at:now()};   // 公开问题上只存"谁触过"用于计数/去重，内容只进通知（仅双方可见）
   if(!q.touches.some(t=>t.by===DB.currentUserId)){ q.touches.push(item); if(CLOUD.enabled) cwArrAdd("questions",q.id,"touches",item); else CW("questions",q); }
@@ -1590,9 +1632,9 @@ function sendTouch(){
   saveDB();
   createNote(q.authorId, "touch", q.id, q.content, content);   // 给发问者发通知（内容仅双方可见）
   closeSheet();
-  addTemp(5,"完成一次轻触");
-  const a=userById(q.authorId)||{nick:"她"};
-  toast("轻触已送达 🤍","已悄悄送到 "+a.nick+" 那里","🤍");
+  addTemp(5,L("完成一次轻触","Sent a touch"));
+  const a=userById(q.authorId)||{nick:L("她","her")};
+  toast(L("轻触已送达 🤍","Touch delivered 🤍"),L("已悄悄送到 "+a.nick+" 那里","Quietly sent to "+a.nick),"🤍");
   setTimeout(renderWorry,300);
 }
 
@@ -1781,9 +1823,9 @@ function viewImage(src){ openSheet(`<div style="text-align:center;"><img src="${
 /* ========== 7. 发问流程（五步） ========== */
 const ASK_DOMAINS=["职业","情感","心理","学业","创业","兴趣","人际","其她"];
 const ASK_REGIONS=[
-  {k:"ice",label:"🧊 冰川区",desc:"长期慢性，需要持续陪伴"},
-  {k:"warm",label:"🌤 微暖区",desc:"短期具体问题"},
-  {k:"hot",label:"🔥 急热区",desc:"很急，需要立刻有人在"},
+  {k:"ice",label:"🧊 冰川区",desc:"长期慢性，需要持续陪伴",len:"🧊 Glacier",den:"Long-term, needs steady company"},
+  {k:"warm",label:"🌤 微暖区",desc:"短期具体问题",len:"🌤 Warm",den:"A short-term, specific thing"},
+  {k:"hot",label:"🔥 急热区",desc:"很急，需要立刻有人在",len:"🔥 Urgent",den:"Really pressing — need someone now"},
 ];
 const ASK_PRIORITY=["距离近优先","专业背景优先","相似经历优先","沟通舒适优先","快速响应优先"];
 let askDraft={}, askStep=0;
@@ -1791,30 +1833,30 @@ function startAsk(){ askDraft={domain:"",region:"",priority:[],content:"",visibi
 function renderAsk(){
   let inner="";
   if(askStep===0){
-    inner=`<h2 class="center">妳想聊聊哪方面？</h2><p class="center field-hint">第 1 / 5 步 · 选领域</p>
-      <div class="bubbles" style="justify-content:center;margin-top:14px;">${ASK_DOMAINS.map(d=>`<span class="bubble ${askDraft.domain===d?"on":""}" onclick="askPick('domain','${d}')">${d}</span>`).join("")}</div>`;
+    inner=`<h2 class="center">${L("妳想聊聊哪方面？","What's this about?")}</h2><p class="center field-hint">${L("第 1 / 5 步 · 选领域","Step 1 / 5 · topic")}</p>
+      <div class="bubbles" style="justify-content:center;margin-top:14px;">${ASK_DOMAINS.map(d=>`<span class="bubble ${askDraft.domain===d?"on":""}" onclick="askPick('domain','${d}')">${optT(d)}</span>`).join("")}</div>`;
   } else if(askStep===1){
-    inner=`<h2 class="center">这件事的温度是？</h2><p class="center field-hint">第 2 / 5 步 · 选区域</p><div style="margin-top:14px;">`+
-      ASK_REGIONS.map(r=>`<div class="bubble ${r.k} ${askDraft.region===r.k?"on":""}" style="display:block;width:100%;margin-bottom:10px;padding:14px;" onclick="askPick('region','${r.k}')"><b>${r.label}</b><br><span class="field-hint">${r.desc}</span></div>`).join("")+`</div>`;
+    inner=`<h2 class="center">${L("这件事的温度是？","How pressing is it?")}</h2><p class="center field-hint">${L("第 2 / 5 步 · 选区域","Step 2 / 5 · urgency")}</p><div style="margin-top:14px;">`+
+      ASK_REGIONS.map(r=>`<div class="bubble ${r.k} ${askDraft.region===r.k?"on":""}" style="display:block;width:100%;margin-bottom:10px;padding:14px;" onclick="askPick('region','${r.k}')"><b>${L(r.label,r.len)}</b><br><span class="field-hint">${L(r.desc,r.den)}</span></div>`).join("")+`</div>`;
   } else if(askStep===2){
-    inner=`<h2 class="center">妳更看重哪种匹配？</h2><p class="center field-hint">第 3 / 5 步 · 优先级（最多选3个，权重最高）</p>
-      <div class="bubbles" style="justify-content:center;margin-top:14px;">${ASK_PRIORITY.map(p=>`<span class="bubble lav ${askDraft.priority.includes(p)?"on":""}" onclick="askMultiPick('${p}')">${p}</span>`).join("")}</div>`;
+    inner=`<h2 class="center">${L("妳更看重哪种匹配？","What matters most in a match?")}</h2><p class="center field-hint">${L("第 3 / 5 步 · 优先级（最多选3个，权重最高）","Step 3 / 5 · priorities (up to 3)")}</p>
+      <div class="bubbles" style="justify-content:center;margin-top:14px;">${ASK_PRIORITY.map(p=>`<span class="bubble lav ${askDraft.priority.includes(p)?"on":""}" onclick="askMultiPick('${p}')">${optT(p)}</span>`).join("")}</div>`;
   } else if(askStep===3){
-    inner=`<h2 class="center">写下妳的问题</h2><p class="center field-hint">第 4 / 5 步 · 至少15字</p>
-      <textarea id="askContent" maxlength="500" style="min-height:130px;margin-top:12px;" oninput="askCount()" placeholder="慢慢说，这里很安全…">${askDraft.content}</textarea>
-      <div class="field-hint center" id="askCounter">0 字</div>`;
+    inner=`<h2 class="center">${L("写下妳的问题","Write your question")}</h2><p class="center field-hint">${L("第 4 / 5 步 · 至少15字","Step 4 / 5 · at least a sentence")}</p>
+      <textarea id="askContent" maxlength="500" style="min-height:130px;margin-top:12px;" oninput="askCount()" placeholder="${L("慢慢说，这里很安全…","Take your time — this is a safe place…")}">${askDraft.content}</textarea>
+      <div class="field-hint center" id="askCounter">0 ${L("字","chars")}</div>`;
   } else if(askStep===4){
-    inner=`<h2 class="center">谁可以看到？</h2><p class="center field-hint">第 5 / 5 步 · 可见范围</p>
+    inner=`<h2 class="center">${L("谁可以看到？","Who can see this?")}</h2><p class="center field-hint">${L("第 5 / 5 步 · 可见范围","Step 5 / 5 · visibility")}</p>
       <div style="margin-top:14px;">
-       <div class="bubble ${askDraft.visibility==="all"?"on":""}" style="display:block;width:100%;margin-bottom:10px;padding:14px;" onclick="askPick('visibility','all')"><b>🌷 所有人可见</b><br><span class="field-hint">会出现在烦恼屋，更多姐妹能温暖妳</span></div>
-       <div class="bubble ${askDraft.visibility==="match"?"on":""}" style="display:block;width:100%;padding:14px;" onclick="askPick('visibility','match')"><b>🔒 仅后台匹配到的人可见</b><br><span class="field-hint">更私密，只推送给最契合的姐妹</span></div>
+       <div class="bubble ${askDraft.visibility==="all"?"on":""}" style="display:block;width:100%;margin-bottom:10px;padding:14px;" onclick="askPick('visibility','all')"><b>${L("🌷 所有人可见","🌷 Everyone")}</b><br><span class="field-hint">${L("会出现在烦恼屋，更多姐妹能温暖妳","Shows in the Therapy Room so more sisters can reach you")}</span></div>
+       <div class="bubble ${askDraft.visibility==="match"?"on":""}" style="display:block;width:100%;padding:14px;" onclick="askPick('visibility','match')"><b>${L("🔒 仅后台匹配到的人可见","🔒 Only matched sisters")}</b><br><span class="field-hint">${L("更私密，只推送给最契合的姐妹","More private — shown only to your best matches")}</span></div>
       </div>`;
   }
   const canNext=askStepValid();
   openSheet(`<div id="askWrap">${inner}
     <div style="display:flex;gap:10px;margin-top:22px;">
       ${askStep>0?`<button class="btn ghost" style="flex:0 0 auto;" onclick="askPrev()">←</button>`:""}
-      <button class="btn block" id="askNextBtn" ${canNext?"":"disabled"} onclick="askNext()">${askStep===4?"发出问题 🌸":"下一步"}</button>
+      <button class="btn block" id="askNextBtn" ${canNext?"":"disabled"} onclick="askNext()">${askStep===4?L("发出问题 🌸","Post question 🌸"):t("btn_next")}</button>
     </div></div>`);
   if(askStep===3) askCount();
 }
@@ -1822,10 +1864,10 @@ function askPick(k,v){ askDraft[k]=v; renderAsk(); }
 function askMultiPick(v){
   const i=askDraft.priority.indexOf(v);
   if(i>=0) askDraft.priority.splice(i,1);
-  else { if(askDraft.priority.length>=3){ toast("最多选3个哦 🌸","",""); return; } askDraft.priority.push(v); }
+  else { if(askDraft.priority.length>=3){ toast(L("最多选3个哦 🌸","Pick up to 3 🌸"),"",""); return; } askDraft.priority.push(v); }
   renderAsk();
 }
-function askCount(){ const t=document.getElementById("askContent"); askDraft.content=t.value; document.getElementById("askCounter").textContent=t.value.length+" 字"+(t.value.length<15?"（还差"+(15-t.value.length)+"字）":" ✓"); document.getElementById("askNextBtn").disabled=t.value.length<15; }
+function askCount(){ const t=document.getElementById("askContent"); askDraft.content=t.value; const n=t.value.length; document.getElementById("askCounter").textContent=L(n+" 字"+(n<15?"（还差"+(15-n)+"字）":" ✓"), n+" chars"+(n<15?" ("+(15-n)+" more)":" ✓")); document.getElementById("askNextBtn").disabled=n<15; }
 function askStepValid(){
   if(askStep===0) return !!askDraft.domain;
   if(askStep===1) return !!askDraft.region;
@@ -1846,8 +1888,8 @@ function submitAsk(){
     priority:[...askDraft.priority], content:askDraft.content.trim(), visibility:askDraft.visibility, touches:[], createdAt:now() };
   DB.questions.unshift(q); saveDB(); CW("questions",q);
   closeSheet();
-  addTemp(10,"发出一个问题");
-  showLoader("正在为妳寻找同频的姐妹…", async ()=>{
+  addTemp(10,L("发出一个问题","Posted a question"));
+  showLoader(L("正在为妳寻找同频的姐妹…","Finding sisters on your wavelength…"), async ()=>{
     if(CLOUD.enabled){ try{ const r=await CLOUD.db.collection("users").limit(300).get(); (r.data||[]).forEach(u=>upsertUser(u)); }catch(e){ logEvent("error","match候选: "+(e.message||e)); } }
     runMatch(q);
   }, 1500);
@@ -2615,39 +2657,39 @@ function renderAware(){
   stories.forEach(s=>{
     const touched=s.touches.includes(DB.currentUserId);
     html+=`<div class="story">
-      <div class="story-meta">${s.anon?"匿名":("✍️ "+s.name)} · ${timeAgo(s.createdAt)}</div>
+      <div class="story-meta">${s.anon?L("匿名","Anonymous"):("✍️ "+s.name)} · ${timeAgo(s.createdAt)}</div>
       <div class="story-body">${s.content}</div>
-      <div class="story-touch" onclick="touchStory('${s.id}')">${touched?"🤍 已看见":"🤍 轻触 · 看见她"} · ${s.touches.length}人看见</div>
+      <div class="story-touch" onclick="touchStory('${s.id}')">${touched?L("🤍 已看见","🤍 Seen"):L("🤍 轻触 · 看见她","🤍 Touch · see her")} · ${L(s.touches.length+"人看见",s.touches.length+" saw this")}</div>
     </div>`;
   });
   body.innerHTML=html;
 }
 function touchStory(id){
   const s=DB.stories.find(x=>x.id===id); if(!s) return;
-  if((s.touches||[]).includes(DB.currentUserId)){ toast("妳已经看见过她了 🤍","",""); return; }
+  if((s.touches||[]).includes(DB.currentUserId)){ toast(L("妳已经看见过她了 🤍","You've already seen her 🤍"),"",""); return; }
   s.touches=s.touches||[]; s.touches.push(DB.currentUserId);
   if(CLOUD.enabled) cwArrAdd("stories",id,"touches",DB.currentUserId); else CW("stories",s);   // 原子更新，避免点完闪一下消失
   if(s.authorId) createNote(s.authorId,"seen",id,s.content);   // 通知故事作者「被看见」
-  saveDB(); renderAware(); toast("妳看见了她 🤍","这份看见，本身就有力量","");
+  saveDB(); renderAware(); toast(L("妳看见了她 🤍","You saw her 🤍"),L("这份看见，本身就有力量","Being seen is its own kind of strength"),"");
 }
 function openStoryCompose(){
-  openSheet(`<h3>留下妳的人生故事 ✨</h3><p class="field-hint">可以匿名或实名，发布后永久留存</p>
-    <textarea id="storyText" style="min-height:140px;" placeholder="写下妳想被看见的那段经历…"></textarea>
-    <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:10px;"><input type="checkbox" id="storyAnon" style="width:auto;" checked> 匿名发布</label>
-    <button class="btn block" style="margin-top:12px;" onclick="publishStory()">发布到她意识 ✨</button>`);
+  openSheet(`<h3>${L("留下妳的人生故事 ✨","Leave your story ✨")}</h3><p class="field-hint">${L("可以匿名或实名，发布后永久留存","Post with your name or anonymously — it stays forever")}</p>
+    <textarea id="storyText" style="min-height:140px;" placeholder="${L("写下妳想被看见的那段经历…","Write the part of your story you want seen…")}"></textarea>
+    <label style="display:flex;align-items:center;gap:8px;font-weight:400;margin-top:10px;"><input type="checkbox" id="storyAnon" style="width:auto;" checked> ${L("匿名发布","Post anonymously")}</label>
+    <button class="btn block" style="margin-top:12px;" onclick="publishStory()">${L("发布到她意识 ✨","Share to Herstory ✨")}</button>`);
 }
 function publishStory(){
-  const t=document.getElementById("storyText").value.trim(); if(t.length<10){ toast("再多写一点吧 🌸","至少10个字",""); return; }
+  const t=document.getElementById("storyText").value.trim(); if(t.length<10){ toast(L("再多写一点吧 🌸","A little more, please 🌸"),L("至少10个字","At least 10 characters"),""); return; }
   const anon=document.getElementById("storyAnon").checked;
   const st={id:uid("s"),authorId:DB.currentUserId,name:me().nick,anon,content:t,touches:[],createdAt:now()};
   DB.stories.unshift(st); saveDB(); CW("stories",st);
-  closeSheet(); renderAware(); toast("故事已留存 ✨","谢谢妳的勇敢，妳会被看见","🤍");
+  closeSheet(); renderAware(); toast(L("故事已留存 ✨","Your story is saved ✨"),L("谢谢妳的勇敢，妳会被看见","Thank you for your courage — you'll be seen"),"🤍");
 }
 
 /* ========== 12. 个人主页 ========== */
 function renderMe(){
   const u=me();
-  if(!u){ document.getElementById("meBody").innerHTML='<div class="empty">资料同步中…🌸<br><br><button class="btn" onclick="fetchMe&&fetchMe();renderMe()">🔄 重试加载</button><br><br><span class="muted" style="font-size:12px;">若一直转圈，多半是后端区域离国内太远，见下方说明</span></div>'; return; }
+  if(!u){ document.getElementById("meBody").innerHTML='<div class="empty">'+L("资料同步中…🌸","Syncing your profile…🌸")+'<br><br><button class="btn" onclick="fetchMe&&fetchMe();renderMe()">'+L("🔄 重试加载","🔄 Retry")+'</button></div>'; return; }
   const myQ=DB.questions.filter(q=>q.authorId===u.id);
   const myP=DB.posts.filter(p=>p.authorId===u.id);
   const myS=DB.stories.filter(s=>s.authorId===u.id);
@@ -2663,41 +2705,41 @@ function renderMe(){
       <div class="avatar" onclick="changeAvatar()" style="cursor:pointer;">${avInner(u)}</div>
       <div class="li-title" style="font-size:18px;">${u.nick}</div>
       <div class="li-sub">ID: ${u.id}</div>
-      <div class="muted" style="font-size:13px;margin-top:6px;cursor:pointer;" onclick="editSign()">${u.sign||"✏️ 写一句个人签名…"}</div>
+      <div class="muted" style="font-size:13px;margin-top:6px;cursor:pointer;" onclick="editSign()">${u.sign||L("✏️ 写一句个人签名…","✏️ Add a short bio…")}</div>
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px;">
-        <span class="temp-pill">🌡️ 本周温度 ${myTemp()}</span>
-        <span class="temp-pill" style="background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">❤️ 共获 ${likesGot} 赞</span>
+        <span class="temp-pill">${L("🌡️ 本周温度 "+myTemp(),"🌡️ Warmth this week "+myTemp())}</span>
+        <span class="temp-pill" style="background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">${L("❤️ 共获 "+likesGot+" 赞","❤️ "+likesGot+" likes")}</span>
       </div>
       <div class="stat-row">
-        <div class="stat" style="cursor:pointer;" onclick="showMyQuestions()"><b>${myQ.length}</b><small>我的问题 ›</small></div>
-        <div class="stat" style="cursor:pointer;" onclick="showMyPosts()"><b>${myP.length}</b><small>我的帖子 ›</small></div>
-        <div class="stat" style="cursor:pointer;" onclick="showNotes()"><b>${touchesGot}</b><small>收到轻触 ›</small></div>
+        <div class="stat" style="cursor:pointer;" onclick="showMyQuestions()"><b>${myQ.length}</b><small>${L("我的问题","My questions")} ›</small></div>
+        <div class="stat" style="cursor:pointer;" onclick="showMyPosts()"><b>${myP.length}</b><small>${L("我的帖子","My posts")} ›</small></div>
+        <div class="stat" style="cursor:pointer;" onclick="showNotes()"><b>${touchesGot}</b><small>${L("收到轻触","Touches")} ›</small></div>
       </div>
     </div>
     <div style="padding:6px 0;">
-      <div class="menu-item" onclick="showNotes()">🔔 我收到的通知<span>${unread?('<span class="rel-tag" style="background:var(--rose);color:#fff;">'+unread+' 新</span> '):''}${notesReceived().length} ›</span></div>
-      <div class="menu-item" onclick="startEditProfile()">📋 编辑我的档案<span>›</span></div>
-      <div class="menu-item" onclick="showBrowsed()">👀 浏览过的烦恼<span>${(DB.browsed||[]).length} ›</span></div>
-      <div class="menu-item" onclick="showMyStories()">✨ 我的她意识故事<span>${myS.length} 篇 · 被看见 ${seenGot} ›</span></div>
-      <div class="menu-item" onclick="showFollowing()">🌸 我的关注<span>${myFollowing().length} ›</span></div>
-      <div class="menu-item" onclick="showCompanions()">🤝 陪伴关系<span>${companions.length} ›</span></div>
-      ${grad.length?`<div class="menu-item" style="background:linear-gradient(135deg,#FCEFE3,#FBE7EC);">🎓 她陪我走过<span>${grad.join("、")}</span></div>`:""}
-      <div class="menu-item" onclick="changeBg()">🖼️ 更换背景图<span>›</span></div>
+      <div class="menu-item" onclick="showNotes()">${L("🔔 我收到的通知","🔔 My notifications")}<span>${unread?('<span class="rel-tag" style="background:var(--rose);color:#fff;">'+unread+L(" 新"," new")+'</span> '):''}${notesReceived().length} ›</span></div>
+      <div class="menu-item" onclick="startEditProfile()">${L("📋 编辑我的档案","📋 Edit my profile")}<span>›</span></div>
+      <div class="menu-item" onclick="showBrowsed()">${L("👀 浏览过的烦恼","👀 Posts I've viewed")}<span>${(DB.browsed||[]).length} ›</span></div>
+      <div class="menu-item" onclick="showMyStories()">${L("✨ 我的她意识故事","✨ My Herstory stories")}<span>${L(myS.length+" 篇 · 被看见 "+seenGot, myS.length+" · seen "+seenGot)} ›</span></div>
+      <div class="menu-item" onclick="showFollowing()">${L("🌸 我的关注","🌸 Following")}<span>${myFollowing().length} ›</span></div>
+      <div class="menu-item" onclick="showCompanions()">${L("🤝 陪伴关系","🤝 Connections")}<span>${companions.length} ›</span></div>
+      ${grad.length?`<div class="menu-item" style="background:linear-gradient(135deg,#FCEFE3,#FBE7EC);">${L("🎓 她陪我走过","🎓 Walked with me")}<span>${grad.join("、")}</span></div>`:""}
+      <div class="menu-item" onclick="changeBg()">${L("🖼️ 更换背景图","🖼️ Change background")}<span>›</span></div>
       <div class="menu-item" onclick="toggleLang()">🌐 语言 / Language<span>${LANG==="zh"?"中文":"English"} ›</span></div>
-      ${myBlocked().length?`<div class="menu-item" onclick="showBlocked()">🙈 已屏蔽的人<span>${myBlocked().length} ›</span></div>`:""}
-      <div class="menu-item" onclick="openAdminGate()" style="opacity:.7;font-size:13px;">🛠️ 开发者入口<span class="muted" style="font-weight:400;">需口令 ›</span></div>
-      <div class="menu-item" onclick="logout()" style="color:#D2615E;justify-content:center;">退出登录</div>
-      <p class="field-hint center" style="margin:4px 16px 0;">她触 Touched · 内测版 v0.4</p>
+      ${myBlocked().length?`<div class="menu-item" onclick="showBlocked()">${L("🙈 已屏蔽的人","🙈 Blocked")}<span>${myBlocked().length} ›</span></div>`:""}
+      <div class="menu-item" onclick="openAdminGate()" style="opacity:.7;font-size:13px;">${L("🛠️ 开发者入口","🛠️ Developer")}<span class="muted" style="font-weight:400;">${L("需口令","passcode")} ›</span></div>
+      <div class="menu-item" onclick="logout()" style="color:#D2615E;justify-content:center;">${L("退出登录","Log out")}</div>
+      <p class="field-hint center" style="margin:4px 16px 0;">她触 Touched · ${L("内测版","Beta")} v0.4</p>
     </div>`;
 }
 function changeAvatar(){
   const opts=["🌷","🌸","🌹","🌻","🌼","🪷","🌺","💐","🍀","🍃","🌿","🌙","⭐","✨","🌈","☁️","💗","💛","💜","🤍","🐰","🐱","🐶","🦊","🐻","🐼","🐨","🐯","🦋","🐝","🐬","🦢","🕊️","☕","🍵","🧋","🍓","🍑","🍰","🎨","📚","🎧","🎸","✍️"];
   const u=me();
-  openSheet(`<h3>换头像 🌸</h3>
+  openSheet(`<h3>${L("换头像 🌸","Change avatar 🌸")}</h3>
     ${u&&u.avatarImg?`<div class="center"><div class="avatar" style="width:84px;height:84px;margin:4px auto 10px;">${avInner(u)}</div></div>`:""}
-    <button class="btn ghost block" onclick="pickAvatarImage()">📷 从相册选择照片</button>
-    ${u&&u.avatarImg?`<button class="btn ghost block" style="margin-top:8px;" onclick="clearAvatarImage()">改回用 emoji 头像</button>`:""}
-    <div class="section-title">或选一个 emoji</div>
+    <button class="btn ghost block" onclick="pickAvatarImage()">${L("📷 从相册选择照片","📷 Pick a photo")}</button>
+    ${u&&u.avatarImg?`<button class="btn ghost block" style="margin-top:8px;" onclick="clearAvatarImage()">${L("改回用 emoji 头像","Back to an emoji")}</button>`:""}
+    <div class="section-title">${L("或选一个 emoji","Or pick an emoji")}</div>
     <div class="emoji-grid">${opts.map(o=>`<span class="bubble" onclick="setAvatar('${o}')">${o}</span>`).join("")}</div>`);
 }
 function pickAvatarImage(){
@@ -2709,10 +2751,10 @@ function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); CWuser
 function avInner(u){ return (u && u.avatarImg) ? `<img src="${u.avatarImg}" alt="">` : (u && u.emoji || "🌸"); }
 function changeBg(){
   const colors=["linear-gradient(135deg,#C9A8D4,#F6C9D4,#F2C4A0)","linear-gradient(135deg,#F6C9D4,#FBE7EC)","linear-gradient(135deg,#C9A8D4,#EAD9F0)","linear-gradient(135deg,#F2C4A0,#FCEFE3)"];
-  openSheet(`<h3>更换背景 🖼️</h3>
-    <button class="btn ghost block" onclick="pickBgImage()">📷 从相册选择照片</button>
-    ${me().bg&&/^data:/.test(me().bg||"")?`<button class="btn ghost block" style="margin-top:8px;" onclick="setBg('')">改回默认渐变</button>`:""}
-    <div class="section-title">或选一个渐变色</div>
+  openSheet(`<h3>${L("更换背景 🖼️","Change background 🖼️")}</h3>
+    <button class="btn ghost block" onclick="pickBgImage()">${L("📷 从相册选择照片","📷 Pick a photo")}</button>
+    ${me().bg&&/^data:/.test(me().bg||"")?`<button class="btn ghost block" style="margin-top:8px;" onclick="setBg('')">${L("改回默认渐变","Back to default")}</button>`:""}
+    <div class="section-title">${L("或选一个渐变色","Or pick a gradient")}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${colors.map(c=>`<div style="height:70px;border-radius:14px;background:${c};cursor:pointer;" onclick="setBg('${c}')"></div>`).join("")}</div>`);
 }
 function bgStyle(bg){ if(!bg) return ""; return /^(data:|http)/.test(bg) ? `background:url(${bg}) center/cover` : `background:${bg}`; }
@@ -2721,33 +2763,33 @@ function pickBgImage(){
   pickImage(1200, 500000, (data)=>{ me().bg=data; saveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast("背景已更换 🖼️","",""); });
 }
 function editSign(){
-  openSheet(`<h3>个人签名 ✏️</h3><textarea id="signText" maxlength="40" placeholder="用一句话介绍此刻的妳…">${me().sign||""}</textarea>
-    <button class="btn block" style="margin-top:10px;" onclick="saveSign()">保存</button>`);
+  openSheet(`<h3>${L("个人签名 ✏️","Your bio ✏️")}</h3><textarea id="signText" maxlength="40" placeholder="${L("用一句话介绍此刻的妳…","One line about you right now…")}">${me().sign||""}</textarea>
+    <button class="btn block" style="margin-top:10px;" onclick="saveSign()">${L("保存","Save")}</button>`);
 }
 function saveSign(){ me().sign=document.getElementById("signText").value.trim(); saveDB(); CWuser(me()); closeSheet(); renderMe(); }
 function showMyQuestions(){
   const myQ=DB.questions.filter(q=>q.authorId===DB.currentUserId);
-  openSheet(`<h3>我发出的问题 💭</h3>${myQ.length?myQ.map(q=>{
+  openSheet(`<h3>${L("我发出的问题 💭","My questions 💭")}</h3>${myQ.length?myQ.map(q=>{
     const reg={ice:"🧊",warm:"🌤",hot:"🔥"}[q.region];
     const tn=notesReceived().filter(n=>n.type==="touch"&&n.refId===q.id);
-    return `<div class="card" style="margin:10px 0;"><div class="li-sub">${reg} ${q.domain} · ${(q.touches||[]).length}次轻触${q.hidden?" · 🙈已隐藏":""}</div><div style="margin-top:6px;">${escapeHtml(q.content)}</div>
-      ${tn.length?`<div class="section-title">收到的轻触（仅妳可见）</div>${tn.map(t=>`<div class="comment">🤍 <b style="cursor:pointer;" onclick="viewUser('${t.fromUid}')">${t.fromNick||"姐妹"}</b>：${escapeHtml(t.content||"")}</div>`).join("")}`:""}
-      <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn ghost sm" onclick="hideMine('questions','${q.id}')">${q.hidden?"👁 取消隐藏":"🙈 隐藏"}</button><button class="btn ghost sm" style="color:#D2615E;" onclick="delMine('questions','${q.id}')">🗑 删除</button></div></div>`;
-  }).join(""):'<p class="empty">还没有发出问题</p>'}`);
+    return `<div class="card" style="margin:10px 0;"><div class="li-sub">${reg} ${optT(q.domain)} · ${L((q.touches||[]).length+"次轻触",(q.touches||[]).length+" touches")}${q.hidden?L(" · 🙈已隐藏"," · 🙈 hidden"):""}</div><div style="margin-top:6px;">${escapeHtml(q.content)}</div>
+      ${tn.length?`<div class="section-title">${L("收到的轻触（仅妳可见）","Touches received (only you see)")}</div>${tn.map(t=>`<div class="comment">🤍 <b style="cursor:pointer;" onclick="viewUser('${t.fromUid}')">${t.fromNick||L("姐妹","a sister")}</b>：${escapeHtml(t.content||"")}</div>`).join("")}`:""}
+      <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn ghost sm" onclick="hideMine('questions','${q.id}')">${q.hidden?L("👁 取消隐藏","👁 Unhide"):L("🙈 隐藏","🙈 Hide")}</button><button class="btn ghost sm" style="color:#D2615E;" onclick="delMine('questions','${q.id}')">${L("🗑 删除","🗑 Delete")}</button></div></div>`;
+  }).join(""):'<p class="empty">'+L("还没有发出问题","No questions yet")+'</p>'}`);
 }
 /* 我收到的（轻触/评论）通知列表 */
 function noteIcon(t){ return ({touch:"🤍",comment:"💬",reply:"💬",like:"❤️",save:"⭐",hand:"🤝",message:"✉️",seen:"🤍",follow:"🌸"})[t]||"🔔"; }
 function showNotes(){
   markNotesSeen();
   const recv=notesReceived();
-  openSheet(`<h3>通知 🔔</h3><p class="field-hint">赞、评论、收藏、轻触、拉手、看见、私信，都会出现在这里</p>
+  openSheet(`<h3>${L("通知 🔔","Notifications 🔔")}</h3><p class="field-hint">${L("赞、评论、收藏、轻触、拉手、看见、私信，都会出现在这里","Likes, comments, saves, touches, reach-outs and messages all show up here")}</p>
     ${recv.length?recv.map(n=>{
       const clickable = (n.type==="hand"||n.type==="message");
       const onclk = clickable ? `onclick="closeSheet();openChatWith('${n.fromUid}')"` : "";
-      return `<div class="card" style="margin:10px 0;cursor:${clickable?'pointer':'default'};" ${onclk}><div class="li-sub">${noteIcon(n.type)} <b style="cursor:pointer;" onclick="event.stopPropagation();viewUser('${n.fromUid}')">${n.fromNick||"姐妹"}</b> ${noteVerb(n)} · ${timeAgo(n.at)}${clickable?' · 点击查看 ›':''}</div>
+      return `<div class="card" style="margin:10px 0;cursor:${clickable?'pointer':'default'};" ${onclk}><div class="li-sub">${noteIcon(n.type)} <b style="cursor:pointer;" onclick="event.stopPropagation();viewUser('${n.fromUid}')">${n.fromNick||L("姐妹","a sister")}</b> ${noteVerb(n)} · ${timeAgo(n.at)}${clickable?L(' · 点击查看 ›',' · tap to open ›'):''}</div>
         ${n.content?`<div style="margin-top:6px;">${escapeHtml(n.content)}</div>`:""}
-        ${n.refText?`<div class="comment" style="margin-top:6px;">关于：${escapeHtml(n.refText)}</div>`:""}</div>`;
-    }).join(""):'<p class="empty">还没有收到通知<br>多去温暖别人，也会收到回应哦🌸</p>'}`);
+        ${n.refText?`<div class="comment" style="margin-top:6px;">${L("关于：","Re: ")}${escapeHtml(n.refText)}</div>`:""}</div>`;
+    }).join(""):'<p class="empty">'+L("还没有收到通知<br>多去温暖别人，也会收到回应哦🌸","No notifications yet.<br>Warm others, and it comes back to you 🌸")+'</p>'}`);
   updateNavBadge(); if(currentScreen==="me") renderMe();
 }
 /* 从通知点进与某人的对话（找到/或新建关系） */
@@ -2766,33 +2808,34 @@ function toggleFollow(id){
   const u=me(); if(!u||!id||id===u.id) return;
   u.following=u.following||[]; const i=u.following.indexOf(id);
   if(i>=0){ u.following.splice(i,1); toast("已取消关注","",""); }
-  else { u.following.push(id); createNote(id,"follow","","",""); toast("已关注 🌸","以后可以在「我的·关注」里找到她",""); }
+  else { u.following.push(id); createNote(id,"follow","","",""); toast(L("已关注 🌸","Following 🌸"),L("以后可以在「我的·关注」里找到她","Find her later under Me · Following"),""); }
   u.updatedAt=now(); saveDB(); CWuser(u); if(currentScreen==="me")renderMe(); viewUser(id);
 }
 function toggleBlock(id){
   const u=me(); if(!u||!id||id===u.id) return;
   u.blocked=u.blocked||[]; const i=u.blocked.indexOf(id);
-  if(i>=0){ u.blocked.splice(i,1); u.updatedAt=now(); saveDB(); CWuser(u); toast("已解除屏蔽","",""); viewUser(id); return; }
-  openSheet(`<h3 class="center">屏蔽这位姐妹？</h3><p class="center muted" style="font-size:13px;">屏蔽后：妳不会再看到她的帖子/问题/评论，她也无法给妳发私信。可随时在「我的·已屏蔽」里解除。</p>
-    <button class="btn block" style="margin-top:12px;background:#D2615E;" onclick="confirmBlock('${id}')">确认屏蔽</button>
-    <button class="btn ghost block" style="margin-top:10px;" onclick="viewUser('${id}')">取消</button>`, true);
+  if(i>=0){ u.blocked.splice(i,1); u.updatedAt=now(); saveDB(); CWuser(u); toast(L("已解除屏蔽","Unblocked"),"",""); viewUser(id); return; }
+  openSheet(`<h3 class="center">${L("屏蔽这位姐妹？","Block her?")}</h3><p class="center muted" style="font-size:13px;">${L("屏蔽后：妳不会再看到她的帖子/问题/评论，她也无法给妳发私信。可随时在「我的·已屏蔽」里解除。","Once blocked, you won't see her posts, questions or comments, and she can't message you. Undo anytime under Me · Blocked.")}</p>
+    <button class="btn block" style="margin-top:12px;background:#D2615E;" onclick="confirmBlock('${id}')">${L("确认屏蔽","Block")}</button>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="viewUser('${id}')">${L("取消","Cancel")}</button>`, true);
 }
 function confirmBlock(id){
   const u=me(); if(!u) return; u.blocked=u.blocked||[]; if(u.blocked.indexOf(id)<0)u.blocked.push(id);
   // 若已关注，屏蔽同时取消关注
   if(u.following){ const fi=u.following.indexOf(id); if(fi>=0)u.following.splice(fi,1); }
   u.updatedAt=now(); saveDB(); CWuser(u);
-  closeSheet(); toast("已屏蔽 🙈","妳们将互不打扰",""); refreshCurrentFeeds(); if(currentScreen==="home")renderHome();
+  closeSheet(); toast(L("已屏蔽 🙈","Blocked 🙈"),L("妳们将互不打扰","You won't cross paths now"),""); refreshCurrentFeeds(); if(currentScreen==="home")renderHome();
 }
+const REPORT_REASONS=[["色情低俗","Sexual / explicit"],["人身攻击/骚扰","Harassment / attack"],["广告/引流诈骗","Spam / scam"],["仇恨/歧视言论","Hate / discrimination"],["其她不适内容","Something else"]];
 function reportContent(kind, refId, authorId){
-  openSheet(`<h3>举报${kind==="user"?"这位用户":"这条内容"}</h3><p class="field-hint">请选择原因，我们会尽快审核处理：</p>
-    ${["色情低俗","人身攻击/骚扰","广告/引流诈骗","仇恨/歧视言论","其她不适内容"].map(r=>`<button class="btn ghost block" style="margin-top:8px;" onclick="submitReport('${kind}','${refId}','${authorId||""}','${r}')">${r}</button>`).join("")}`);
+  openSheet(`<h3>${L("举报"+(kind==="user"?"这位用户":"这条内容"),"Report "+(kind==="user"?"this user":"this content"))}</h3><p class="field-hint">${L("请选择原因，我们会尽快审核处理：","Pick a reason — we'll review it soon:")}</p>
+    ${REPORT_REASONS.map(r=>`<button class="btn ghost block" style="margin-top:8px;" onclick="submitReport('${kind}','${refId}','${authorId||""}','${r[0]}')">${L(r[0],r[1])}</button>`).join("")}`);
 }
 function submitReport(kind, refId, authorId, reason){
   const rep={ id:uid("rp"), kind, refId, authorId:authorId||"", reason, byUid:DB.currentUserId, byNick:(me()&&me().nick)||"", at:now(), handled:false };
   DB.reports=DB.reports||[]; DB.reports.unshift(rep); saveDB();
   CW("reports", rep);   // 尽力写入云端「reports」集合，供后台集中审核（未建该集合则仅本地留存）
-  closeSheet(); toast("已收到妳的举报 🌸","我们会尽快查看处理，谢谢妳让这里更安全","");
+  closeSheet(); toast(L("已收到妳的举报 🌸","Report received 🌸"),L("我们会尽快查看处理，谢谢妳让这里更安全","We'll look into it soon — thank you for keeping this place safe"),"");
 }
 /* 点击任意头像/昵称 → 查看她人公开主页 */
 async function viewUser(id){
@@ -2806,30 +2849,30 @@ async function viewUser(id){
   const following=isFollowing(id), blocked=isBlocked(id);
   openSheet(`<div class="center">
       <div class="avatar" style="width:80px;height:80px;font-size:38px;margin:0 auto 8px;">${avInner(u)}</div>
-      <div class="li-title" style="font-size:18px;">${u.nick||"姐妹"}</div>
-      <div class="li-sub">${[u.age?u.age+"岁":"",u.region||u.country||""].filter(Boolean).join(" · ")||"她触的姐妹"}</div>
+      <div class="li-title" style="font-size:18px;">${u.nick||L("姐妹","a sister")}</div>
+      <div class="li-sub">${[u.age?L(u.age+"岁",u.age+" y/o"):"",optT(u.region||u.country||"")].filter(Boolean).join(" · ")||L("她触的姐妹","a sister on Touched")}</div>
       <p class="muted" style="font-size:13px;margin-top:6px;">${u.sign?escapeHtml(u.sign):""}</p>
-      <span class="temp-pill" style="margin-top:6px;background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">❤️ 帖子共获 ${likes} 赞</span>
+      <span class="temp-pill" style="margin-top:6px;background:linear-gradient(135deg,#FBE0E0,#FBE7EC);color:#C25;">${L("❤️ 帖子共获 "+likes+" 赞","❤️ "+likes+" likes on posts")}</span>
     </div>
-    ${blocked?`<p class="center muted" style="margin-top:14px;">${LANG==="zh"?"妳已屏蔽她。":"You've blocked her. "}<span class="link" onclick="toggleBlock('${id}')">${LANG==="zh"?"解除屏蔽":"Unblock"}</span></p>`:`
+    ${blocked?`<p class="center muted" style="margin-top:14px;">${L("妳已屏蔽她。","You've blocked her. ")}<span class="link" onclick="toggleBlock('${id}')">${L("解除屏蔽","Unblock")}</span></p>`:`
     <div style="display:flex;gap:10px;margin-top:14px;">
       <button class="btn ${following?"ghost":""}" style="flex:1;" onclick="toggleFollow('${id}')">${following?t("act_following"):t("act_follow")}</button>
       <button class="btn" style="flex:1;" onclick="closeSheet();openChatWith('${id}')">${t("act_dm")}</button>
     </div>`}
-    ${u.status||u.phase?`<div class="bubbles" style="justify-content:center;margin-top:12px;">${u.status?`<span class="bubble">${u.status}</span>`:""}${u.phase?`<span class="bubble lav">${u.phase}</span>`:""}</div>`:""}
-    ${u.hobbies&&u.hobbies.length?`<div class="section-title">爱好</div><div class="bubbles">${u.hobbies.slice(0,12).map(h=>`<span class="bubble">${escapeHtml(h)}</span>`).join("")}</div>`:""}
-    ${u.skills&&u.skills.length?`<div class="section-title">擅长</div><div class="bubbles">${u.skills.slice(0,10).map(h=>`<span class="bubble apri">${escapeHtml(h)}</span>`).join("")}</div>`:""}
-    ${herP.length?`<div class="section-title">她的帖子（${herP.length}）</div>${herP.slice(0,5).map(p=>`<div class="comment">${escapeHtml((p.text||"").slice(0,60))}${(p.text||"").length>60?"…":""}　❤️${(p.likes||[]).length}</div>`).join("")}`:""}
-    ${herQ.length?`<div class="section-title">她发过的问题（${herQ.length}）</div>${herQ.slice(0,5).map(q=>`<div class="comment">💭 ${escapeHtml((q.content||"").slice(0,60))}${(q.content||"").length>60?"…":""}</div>`).join("")}`:""}
-    ${!herP.length&&!herQ.length?`<p class="center muted" style="margin-top:12px;font-size:13px;">她还没有公开的帖子或问题</p>`:""}
+    ${u.status||u.phase?`<div class="bubbles" style="justify-content:center;margin-top:12px;">${u.status?`<span class="bubble">${optT(u.status)}</span>`:""}${u.phase?`<span class="bubble lav">${optT(u.phase)}</span>`:""}</div>`:""}
+    ${u.hobbies&&u.hobbies.length?`<div class="section-title">${L("爱好","Loves")}</div><div class="bubbles">${u.hobbies.slice(0,12).map(h=>`<span class="bubble">${escapeHtml(optT(h))}</span>`).join("")}</div>`:""}
+    ${u.skills&&u.skills.length?`<div class="section-title">${L("擅长","Good at")}</div><div class="bubbles">${u.skills.slice(0,10).map(h=>`<span class="bubble apri">${escapeHtml(optT(h))}</span>`).join("")}</div>`:""}
+    ${herP.length?`<div class="section-title">${L("她的帖子（"+herP.length+"）","Her posts ("+herP.length+")")}</div>${herP.slice(0,5).map(p=>`<div class="comment">${escapeHtml((p.text||"").slice(0,60))}${(p.text||"").length>60?"…":""}　❤️${(p.likes||[]).length}</div>`).join("")}`:""}
+    ${herQ.length?`<div class="section-title">${L("她发过的问题（"+herQ.length+"）","Her questions ("+herQ.length+")")}</div>${herQ.slice(0,5).map(q=>`<div class="comment">💭 ${escapeHtml((q.content||"").slice(0,60))}${(q.content||"").length>60?"…":""}</div>`).join("")}`:""}
+    ${!herP.length&&!herQ.length?`<p class="center muted" style="margin-top:12px;font-size:13px;">${L("她还没有公开的帖子或问题","No public posts or questions yet")}</p>`:""}
     <div class="center" style="margin-top:16px;font-size:12px;color:var(--ink-soft);">
       <span class="link" onclick="reportContent('user','${id}','${id}')">${t("act_report")}</span>${blocked?"":` · <span class="link" onclick="toggleBlock('${id}')">${t("act_block")}</span>`}
     </div>`);
 }
 function showMyPosts(){
   const myP=DB.posts.filter(p=>p.authorId===DB.currentUserId);
-  openSheet(`<h3>我的帖子 🎉</h3>${myP.length?myP.map(p=>`<div class="card" style="margin:10px 0;">${escapeHtml(p.text)}${postImagesHTML(p)}<div class="li-sub" style="margin-top:6px;">❤️ ${(p.likes||[]).length} · 💬 ${(p.comments||[]).length}${p.hidden?" · 🙈已隐藏":""}</div>
-    <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn ghost sm" onclick="hideMine('posts','${p.id}')">${p.hidden?"👁 取消隐藏":"🙈 隐藏"}</button><button class="btn ghost sm" style="color:#D2615E;" onclick="delMine('posts','${p.id}')">🗑 删除</button></div></div>`).join(""):'<p class="empty">还没有发帖</p>'}`);
+  openSheet(`<h3>${L("我的帖子 🎉","My posts 🎉")}</h3>${myP.length?myP.map(p=>`<div class="card" style="margin:10px 0;">${escapeHtml(p.text)}${postImagesHTML(p)}<div class="li-sub" style="margin-top:6px;">❤️ ${(p.likes||[]).length} · 💬 ${(p.comments||[]).length}${p.hidden?L(" · 🙈已隐藏"," · 🙈 hidden"):""}</div>
+    <div style="display:flex;gap:8px;margin-top:10px;"><button class="btn ghost sm" onclick="hideMine('posts','${p.id}')">${p.hidden?L("👁 取消隐藏","👁 Unhide"):L("🙈 隐藏","🙈 Hide")}</button><button class="btn ghost sm" style="color:#D2615E;" onclick="delMine('posts','${p.id}')">${L("🗑 删除","🗑 Delete")}</button></div></div>`).join(""):'<p class="empty">'+L("还没有发帖","No posts yet")+'</p>'}`);
 }
 /* 删除/隐藏自己发的帖子或问题 */
 function hideMine(coll,id){
@@ -2839,12 +2882,12 @@ function hideMine(coll,id){
   if(CLOUD.enabled) cwUpdate(coll,id,{hidden:o.hidden}); else CW(coll,o);
   if(currentScreen==="home") renderHome();
   coll==="posts"?showMyPosts():showMyQuestions();
-  toast(o.hidden?"已隐藏 🙈":"已取消隐藏 👁","别人将"+(o.hidden?"看不到":"重新看到"),"");
+  toast(o.hidden?L("已隐藏 🙈","Hidden 🙈"):L("已取消隐藏 👁","Unhidden 👁"),L("别人将"+(o.hidden?"看不到":"重新看到"),o.hidden?"Others can't see it now":"Others can see it again"),"");
 }
 function delMine(coll,id){
-  openSheet(`<h3 class="center">确认删除？</h3><p class="center muted">删除后无法恢复哦。</p>
-    <button class="btn block" style="margin-top:12px;background:#D2615E;" onclick="confirmDelMine('${coll}','${id}')">确认删除</button>
-    <button class="btn ghost block" style="margin-top:10px;" onclick="${coll==='posts'?'showMyPosts':'showMyQuestions'}()">取消</button>`, true);
+  openSheet(`<h3 class="center">${L("确认删除？","Delete this?")}</h3><p class="center muted">${L("删除后无法恢复哦。","This can't be undone.")}</p>
+    <button class="btn block" style="margin-top:12px;background:#D2615E;" onclick="confirmDelMine('${coll}','${id}')">${L("确认删除","Delete")}</button>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="${coll==='posts'?'showMyPosts':'showMyQuestions'}()">${L("取消","Cancel")}</button>`, true);
 }
 function confirmDelMine(coll,id){
   if(coll==="posts") DB.posts=DB.posts.filter(x=>x.id!==id);
@@ -2856,21 +2899,21 @@ function confirmDelMine(coll,id){
 }
 function showFollowing(){
   const ids=myFollowing();
-  openSheet(`<h3>我的关注 🌸</h3>${ids.length?ids.map(id=>{ const u=userById(id)||{nick:"姐妹",emoji:"🌸",id}; return `<div class="li" style="display:flex;align-items:center;gap:10px;padding:8px 0;">
+  openSheet(`<h3>${L("我的关注 🌸","Following 🌸")}</h3>${ids.length?ids.map(id=>{ const u=userById(id)||{nick:L("姐妹","a sister"),emoji:"🌸",id}; return `<div class="li" style="display:flex;align-items:center;gap:10px;padding:8px 0;">
       <div class="avatar" style="width:40px;height:40px;font-size:19px;cursor:pointer;" onclick="closeSheet();viewUser('${id}')">${avInner(u)}</div>
-      <div style="flex:1;cursor:pointer;" onclick="closeSheet();viewUser('${id}')"><div class="li-title">${u.nick||"姐妹"}</div><div class="li-sub">${[u.region||u.country||"",u.status||""].filter(Boolean).join(" · ")}</div></div>
+      <div style="flex:1;cursor:pointer;" onclick="closeSheet();viewUser('${id}')"><div class="li-title">${u.nick||L("姐妹","a sister")}</div><div class="li-sub">${[optT(u.region||u.country||""),optT(u.status||"")].filter(Boolean).join(" · ")}</div></div>
       <button class="btn sm" onclick="closeSheet();openChatWith('${id}')">💬</button>
-    </div>`; }).join(""):'<p class="empty">还没有关注谁<br>在任何人的主页点「＋关注」，就能把她留在这里 🌸</p>'}`);
+    </div>`; }).join(""):'<p class="empty">'+L("还没有关注谁<br>在任何人的主页点「＋关注」，就能把她留在这里 🌸","Not following anyone yet.<br>Tap ＋Follow on anyone's profile to keep her here 🌸")+'</p>'}`);
 }
 function showBlocked(){
   const ids=myBlocked();
-  openSheet(`<h3>已屏蔽的人 🙈</h3><p class="field-hint">屏蔽后互不打扰。点「解除」可恢复。</p>${ids.length?ids.map(id=>{ const u=userById(id)||{nick:"姐妹",emoji:"🌸",id}; return `<div class="li" style="display:flex;align-items:center;gap:10px;padding:8px 0;">
+  openSheet(`<h3>${L("已屏蔽的人 🙈","Blocked 🙈")}</h3><p class="field-hint">${L("屏蔽后互不打扰。点「解除」可恢复。","No contact once blocked. Tap Unblock to undo.")}</p>${ids.length?ids.map(id=>{ const u=userById(id)||{nick:L("姐妹","a sister"),emoji:"🌸",id}; return `<div class="li" style="display:flex;align-items:center;gap:10px;padding:8px 0;">
       <div class="avatar" style="width:40px;height:40px;font-size:19px;">${avInner(u)}</div>
-      <div style="flex:1;"><div class="li-title">${u.nick||"姐妹"}</div></div>
-      <button class="btn ghost sm" onclick="unblockFromList('${id}')">解除</button>
-    </div>`; }).join(""):'<p class="empty">没有屏蔽任何人 🌿</p>'}`);
+      <div style="flex:1;"><div class="li-title">${u.nick||L("姐妹","a sister")}</div></div>
+      <button class="btn ghost sm" onclick="unblockFromList('${id}')">${L("解除","Unblock")}</button>
+    </div>`; }).join(""):'<p class="empty">'+L("没有屏蔽任何人 🌿","No one blocked 🌿")+'</p>'}`);
 }
-function unblockFromList(id){ const u=me(); if(!u)return; u.blocked=(u.blocked||[]).filter(x=>x!==id); u.updatedAt=now(); saveDB(); CWuser(u); toast("已解除屏蔽","",""); refreshCurrentFeeds(); showBlocked(); }
+function unblockFromList(id){ const u=me(); if(!u)return; u.blocked=(u.blocked||[]).filter(x=>x!==id); u.updatedAt=now(); saveDB(); CWuser(u); toast(L("已解除屏蔽","Unblocked"),"",""); refreshCurrentFeeds(); showBlocked(); }
 function showMyStories(){
   const myS=DB.stories.filter(s=>s.authorId===DB.currentUserId).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
   const total=myS.reduce((s,x)=>s+((x.touches&&x.touches.length)||0),0);
@@ -2889,34 +2932,36 @@ function showCompanions(){
     ${rels.length?rels.map(r=>{const o=relName(r);return `<div class="list-item" onclick="closeSheet();openChat('${r.id}')"><div class="avatar">${avInner(o)}</div><div class="li-main"><div class="li-title">${o.nick} <span class="rel-tag">${relTypeLabel(r)}</span></div><div class="li-sub">已建立 ${daysSince(r.confirmedAt||r.createdAt)} 天</div></div></div>`}).join(""):'<p class="empty">还没有陪伴关系</p>'}`);
 }
 function startEditProfile(){ editSingle=false; editProfileMenu(); }
+const _sep=()=>LANG==="en"?", ":"、";
+const _mapOpt=arr=>(arr||[]).map(optT).join(_sep());
 const PROF_FIELDS=[
-  {i:0,key:"nick",label:"昵称",get:u=>u.nick},
-  {i:1,key:"age",label:"年龄",get:u=>u.age+"岁"},
-  {i:2,key:"region",label:"地区",get:u=>[u.country,u.region].filter(Boolean).join(" ")},
-  {i:3,key:"status",label:"当前状态",get:u=>u.status},
-  {i:4,key:"phase",label:"最近处境",get:u=>u.phase},
-  {i:5,key:"needs",label:"需要支持的领域",get:u=>(u.needs||[]).join("、")},
-  {i:6,key:"purpose",label:"来这里的目的",get:u=>u.purpose},
-  {i:7,key:"time",label:"能投入的时间",get:u=>u.time},
-  {i:8,key:"hobbies",label:"爱好",get:u=>(u.hobbies||[]).join("、")},
-  {i:9,key:"mbti",label:"MBTI",get:u=>u.mbti},
-  {i:10,key:"skills",label:"擅长领域",get:u=>(u.skills||[]).join("、")},
-  {i:11,key:"traits",label:"性格关键词",get:u=>(u.traits||[]).join("、")},
-  {i:12,key:"exp",label:"经历过的事",get:u=>(u.exp||[]).join("、")}
+  {i:0,key:"nick",label:"昵称",en:"Nickname",get:u=>u.nick},
+  {i:1,key:"age",label:"年龄",en:"Age",get:u=>L(u.age+"岁",u.age+" y/o")},
+  {i:2,key:"region",label:"地区",en:"Location",get:u=>[optT(u.country),optT(u.region)].filter(Boolean).join(" ")},
+  {i:3,key:"status",label:"当前状态",en:"Current status",get:u=>optT(u.status)},
+  {i:4,key:"phase",label:"最近处境",en:"Where I'm at",get:u=>optT(u.phase)},
+  {i:5,key:"needs",label:"需要支持的领域",en:"Support I want",get:u=>_mapOpt(u.needs)},
+  {i:6,key:"purpose",label:"来这里的目的",en:"Why I'm here",get:u=>optT(u.purpose)},
+  {i:7,key:"time",label:"能投入的时间",en:"Time I can give",get:u=>optT(u.time)},
+  {i:8,key:"hobbies",label:"爱好",en:"Loves",get:u=>_mapOpt(u.hobbies)},
+  {i:9,key:"mbti",label:"MBTI",en:"MBTI",get:u=>optT(u.mbti)},
+  {i:10,key:"skills",label:"擅长领域",en:"Good at",get:u=>_mapOpt(u.skills)},
+  {i:11,key:"traits",label:"性格关键词",en:"Traits",get:u=>_mapOpt(u.traits)},
+  {i:12,key:"exp",label:"经历过的事",en:"Been through",get:u=>_mapOpt(u.exp)}
 ];
 function editProfileMenu(){
   closeSheet();
   const u=me()||{};
-  openSheet(`<h3>编辑档案 📋</h3><p class="field-hint">点任意一项，只改那一项，改完即存 🌸</p>
-    ${PROF_FIELDS.map(f=>`<div class="menu-item" style="margin:8px 0;" onclick="editOneField(${f.i})"><span>${f.label}</span><span class="muted" style="font-weight:400;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((f.get(u)||"未填")+"")} ›</span></div>`).join("")}
-    <button class="btn block" style="margin-top:12px;" onclick="closeSheet();navTo('me')">✓ 完成，退出编辑</button>`);
+  openSheet(`<h3>${L("编辑档案 📋","Edit profile 📋")}</h3><p class="field-hint">${L("点任意一项，只改那一项，改完即存 🌸","Tap any field to edit just that one — saved instantly 🌸")}</p>
+    ${PROF_FIELDS.map(f=>`<div class="menu-item" style="margin:8px 0;" onclick="editOneField(${f.i})"><span>${L(f.label,f.en)}</span><span class="muted" style="font-weight:400;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml((f.get(u)||L("未填","not set"))+"")} ›</span></div>`).join("")}
+    <button class="btn block" style="margin-top:12px;" onclick="closeSheet();navTo('me')">${L("✓ 完成，退出编辑","✓ Done editing")}</button>`);
 }
 function editOneField(idx){ closeSheet(); syncProfileToDraft(); editSingle=true; profStepIdx=idx; go("profile"); renderProfStep(); }
 function syncProfileToDraft(){ const u=me(); profDraft={nick:u.nick,age:u.age,country:u.country,region:u.region,status:u.status,phase:u.phase,needs:[...(u.needs||[])],purpose:u.purpose,time:u.time,hobbies:[...(u.hobbies||[])],mbti:u.mbti,skills:[...(u.skills||[])],traits:[...(u.traits||[])],exp:[...(u.exp||[])]}; }
 function logout(){
-  openSheet(`<h3 class="center">退出登录？ 🌙</h3><p class="center muted">妳的数据会保留，下次可以再回来。</p>
-    <button class="btn block" style="margin-top:14px;" onclick="doLogout()">退出</button>
-    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet()">取消</button>`, true);
+  openSheet(`<h3 class="center">${L("退出登录？ 🌙","Log out? 🌙")}</h3><p class="center muted">${L("妳的数据会保留，下次可以再回来。","Your data stays safe — come back anytime.")}</p>
+    <button class="btn block" style="margin-top:14px;" onclick="doLogout()">${L("退出","Log out")}</button>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet()">${L("取消","Cancel")}</button>`, true);
 }
 function doLogout(){
   setSession("");
@@ -2956,12 +3001,12 @@ function openAdminGate(){
   document.getElementById("adminBody").innerHTML=`
     <div class="gate">
       <div style="font-size:46px;">🛠️</div>
-      <h2 style="color:#fff;">开发者控制台</h2>
-      <p style="color:#B9A7C8;font-size:13px;">仅限管理员。请输入口令。</p>
-      <input id="admPass" type="password" placeholder="管理员口令" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;text-align:center;margin-top:10px;">
-      <button class="btn block" style="margin-top:12px;" onclick="checkAdminPass()">进入 →</button>
-      <p style="color:#6E5E7E;font-size:11px;margin-top:14px;">默认口令 touched-admin，进入后可修改</p>
-      <a class="link" style="color:#9C8AAC;margin-top:8px;display:inline-block;" onclick="exitAdmin()">返回 App</a>
+      <h2 style="color:#fff;">${L("开发者控制台","Developer Console")}</h2>
+      <p style="color:#B9A7C8;font-size:13px;">${L("仅限管理员。请输入口令。","Admins only. Enter the passcode.")}</p>
+      <input id="admPass" type="password" placeholder="${L("管理员口令","Admin passcode")}" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;text-align:center;margin-top:10px;">
+      <button class="btn block" style="margin-top:12px;" onclick="checkAdminPass()">${L("进入 →","Enter →")}</button>
+      <p style="color:#6E5E7E;font-size:11px;margin-top:14px;">${L("默认口令 touched-admin，进入后可修改","Default passcode: touched-admin (changeable inside)")}</p>
+      <a class="link" style="color:#9C8AAC;margin-top:8px;display:inline-block;" onclick="exitAdmin()">${L("返回 App","Back to app")}</a>
     </div>`;
   setTimeout(()=>{ const i=document.getElementById("admPass"); if(i) i.focus(); },200);
 }
@@ -2969,7 +3014,7 @@ function checkAdminPass(){
   const v=(document.getElementById("admPass").value||"").trim();
   const cfg=adminConfig();
   if(v===cfg.pass || cfg.extra.includes(v)){ adminUnlocked=true; logEvent("info","管理员登录"); renderAdmin("overview"); }
-  else { toast("口令不正确 🔒","",""); }
+  else { toast(L("口令不正确 🔒","Wrong passcode 🔒"),"",""); }
 }
 function exitAdmin(){
   if(location.hash) history.replaceState(null,"",location.pathname+location.search);
@@ -2980,7 +3025,7 @@ function renderAdmin(tab){
   adminTab=tab||adminTab;
   const b=document.getElementById("adminBody");
   const nRep=(DB.reports||[]).filter(r=>!r.handled).length;
-  const tabs=[["overview","概览"],["log","运行日志"],["mod","内容审核"],["report","举报"+(nRep?(" "+nRep):"")],["data","数据管理"]];
+  const tabs=[["overview",L("概览","Overview")],["log",L("运行日志","Logs")],["mod",L("内容审核","Moderation")],["report",L("举报","Reports")+(nRep?(" "+nRep):"")],["data",L("数据管理","Data")]];
   let html=`<div class="adm-tabs">${tabs.map(t=>`<span class="adm-tab ${adminTab===t[0]?"on":""}" onclick="renderAdmin('${t[0]}')">${t[1]}</span>`).join("")}</div>`;
   if(adminTab==="overview") html+=adminOverview();
   else if(adminTab==="log") html+=adminLog();
@@ -2993,27 +3038,27 @@ function adminOverview(){
   const errs=DEV_LOG.filter(l=>l.type==="error").length;
   const rels=DB.relationships;
   let size=0; try{ size=Math.round((localStorage.getItem(DB_KEY)||"").length/1024); }catch(e){}
-  return `<div class="adm-card"><h4>📊 运行概览</h4>
+  return `<div class="adm-card"><h4>${L("📊 运行概览","📊 Overview")}</h4>
     <div class="adm-stat">
-      <div><b>${DB.users.length}</b><small>用户</small></div>
-      <div><b>${DB.questions.length}</b><small>问题</small></div>
-      <div><b>${DB.posts.length}</b><small>帖子</small></div>
-      <div><b>${DB.stories.length}</b><small>故事</small></div>
-      <div><b>${rels.length}</b><small>关系</small></div>
+      <div><b>${DB.users.length}</b><small>${L("用户","Users")}</small></div>
+      <div><b>${DB.questions.length}</b><small>${L("问题","Questions")}</small></div>
+      <div><b>${DB.posts.length}</b><small>${L("帖子","Posts")}</small></div>
+      <div><b>${DB.stories.length}</b><small>${L("故事","Stories")}</small></div>
+      <div><b>${rels.length}</b><small>${L("关系","Connections")}</small></div>
       <div><b>${rels.filter(r=>r.type==="mentorship"&&!r.ended).length}</b><small>Mentorship</small></div>
     </div></div>
-    <div class="adm-card"><h4>🩺 健康检查</h4>
-      <div class="adm-row ${errs?"":""}">运行错误：<b style="color:${errs?"#F6A9A9":"#9FD3B0"}">${errs} 条</b>${errs?'　<span class="adm-btn" onclick="renderAdmin(\'log\')">查看</span>':"　✅ 暂无报错"}</div>
-      <div class="adm-row">localStorage 占用：${size} KB ${size>4000?"⚠️ 偏大":"✅"}</div>
-      <div class="adm-row">当前登录：${DB.currentUserId?(me()?me().nick+"（"+me().id+"）":"异常用户ID"):"未登录"}</div>
-      <div class="adm-row">数据完整性：${checkIntegrity()}</div>
+    <div class="adm-card"><h4>${L("🩺 健康检查","🩺 Health check")}</h4>
+      <div class="adm-row ${errs?"":""}">${L("运行错误：","Errors: ")}<b style="color:${errs?"#F6A9A9":"#9FD3B0"}">${L(errs+" 条",errs+"")}</b>${errs?'　<span class="adm-btn" onclick="renderAdmin(\'log\')">'+L("查看","View")+'</span>':"　"+L("✅ 暂无报错","✅ None")}</div>
+      <div class="adm-row">${L("localStorage 占用：","localStorage: ")}${size} KB ${size>4000?L("⚠️ 偏大","⚠️ large"):"✅"}</div>
+      <div class="adm-row">${L("当前登录：","Signed in: ")}${DB.currentUserId?(me()?me().nick+"（"+me().id+"）":L("异常用户ID","bad user ID")):L("未登录","not signed in")}</div>
+      <div class="adm-row">${L("数据完整性：","Data integrity: ")}${checkIntegrity()}</div>
     </div>
-    <div class="adm-card"><h4>🔑 管理员设置</h4>
-      <div class="adm-row">当前口令：<code>${adminConfig().pass}</code></div>
-      <div style="display:flex;gap:6px;margin-top:6px;"><input id="newPass" placeholder="设置新口令" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn ok" onclick="setAdminPass()">更新</button></div>
-      <div style="margin-top:10px;font-size:12px;color:#B9A7C8;">信任姐妹口令（额外可用口令，逗号分隔可加多个）：</div>
-      <div style="display:flex;gap:6px;margin-top:6px;"><input id="extraPass" placeholder="如：lily2026" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn" onclick="addAdmin()">添加</button></div>
-      ${adminConfig().extra.length?`<div class="adm-row" style="margin-top:8px;">已授权：${adminConfig().extra.map(x=>`<code>${x}</code>`).join("、")}</div>`:""}
+    <div class="adm-card"><h4>${L("🔑 管理员设置","🔑 Admin settings")}</h4>
+      <div class="adm-row">${L("当前口令：","Passcode: ")}<code>${adminConfig().pass}</code></div>
+      <div style="display:flex;gap:6px;margin-top:6px;"><input id="newPass" placeholder="${L("设置新口令","New passcode")}" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn ok" onclick="setAdminPass()">${L("更新","Update")}</button></div>
+      <div style="margin-top:10px;font-size:12px;color:#B9A7C8;">${L("信任姐妹口令（额外可用口令，逗号分隔可加多个）：","Trusted passcodes (extra logins, comma-separated):")}</div>
+      <div style="display:flex;gap:6px;margin-top:6px;"><input id="extraPass" placeholder="${L("如：lily2026","e.g. lily2026")}" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn" onclick="addAdmin()">${L("添加","Add")}</button></div>
+      ${adminConfig().extra.length?`<div class="adm-row" style="margin-top:8px;">${L("已授权：","Authorized: ")}${adminConfig().extra.map(x=>`<code>${x}</code>`).join("、")}</div>`:""}
     </div>`;
 }
 function checkIntegrity(){
@@ -3022,13 +3067,13 @@ function checkIntegrity(){
   DB.questions.forEach(q=>{ if(!userById(q.authorId)) issues.push("问题"+q.id+"作者缺失"); });
   return issues.length?('⚠️ '+issues.length+' 处：'+issues.slice(0,3).join("；")):"✅ 正常";
 }
-function setAdminPass(){ const v=(document.getElementById("newPass").value||"").trim(); if(v.length<4){ toast("口令至少4位 🔒","",""); return; } adminConfig().pass=v; saveDB(); renderAdmin("overview"); toast("口令已更新 🔑","（本机生效）",""); }
-function addAdmin(){ const v=(document.getElementById("extraPass").value||"").trim(); if(!v) return; v.split(",").map(s=>s.trim()).filter(Boolean).forEach(p=>{ if(!adminConfig().extra.includes(p)) adminConfig().extra.push(p); }); saveDB(); renderAdmin("overview"); toast("已添加信任口令 🌸","（本机生效）",""); }
+function setAdminPass(){ const v=(document.getElementById("newPass").value||"").trim(); if(v.length<4){ toast(L("口令至少4位 🔒","At least 4 characters 🔒"),"",""); return; } adminConfig().pass=v; saveDB(); renderAdmin("overview"); toast(L("口令已更新 🔑","Passcode updated 🔑"),L("（本机生效）","(this device)"),""); }
+function addAdmin(){ const v=(document.getElementById("extraPass").value||"").trim(); if(!v) return; v.split(",").map(s=>s.trim()).filter(Boolean).forEach(p=>{ if(!adminConfig().extra.includes(p)) adminConfig().extra.push(p); }); saveDB(); renderAdmin("overview"); toast(L("已添加信任口令 🌸","Passcode added 🌸"),L("（本机生效）","(this device)"),""); }
 function adminLog(){
-  if(!DEV_LOG.length) return `<div class="adm-card"><h4>📜 运行日志</h4><div class="adm-row">暂无日志，一切平稳 🌿</div></div>`;
-  return `<div class="adm-card"><h4>📜 运行日志（最新在上）<span class="adm-btn" style="float:right;" onclick="clearLog()">清空</span></h4>
+  if(!DEV_LOG.length) return `<div class="adm-card"><h4>${L("📜 运行日志","📜 Logs")}</h4><div class="adm-row">${L("暂无日志，一切平稳 🌿","No logs — all calm 🌿")}</div></div>`;
+  return `<div class="adm-card"><h4>${L("📜 运行日志（最新在上）","📜 Logs (newest first)")}<span class="adm-btn" style="float:right;" onclick="clearLog()">${L("清空","Clear")}</span></h4>
     ${DEV_LOG.slice().reverse().map(l=>`<div class="log-line ${l.type}">[${new Date(l.t).toLocaleTimeString()}] ${l.type==="error"?"❌":"ℹ️"} ${l.msg}</div>`).join("")}</div>
-    <div class="adm-card"><h4>🧪 自检</h4><button class="adm-btn" onclick="runSelfTest()">运行一次自检</button><div id="selfTestOut" style="margin-top:8px;"></div></div>`;
+    <div class="adm-card"><h4>${L("🧪 自检","🧪 Self-test")}</h4><button class="adm-btn" onclick="runSelfTest()">${L("运行一次自检","Run self-test")}</button><div id="selfTestOut" style="margin-top:8px;"></div></div>`;
 }
 function clearLog(){ DEV_LOG.length=0; if(DB) DB.devLog=[]; saveDB(); renderAdmin("log"); }
 function runSelfTest(){
@@ -3049,36 +3094,37 @@ function allContent(){
   DB.stories.forEach(s=>items.push({coll:"stories",id:s.id,kind:"故事",who:s.anon?"匿名":s.name,text:s.content,hidden:!!s.hidden,obj:s}));
   return items.sort((a,b)=>(b.obj.createdAt||0)-(a.obj.createdAt||0));
 }
+function kindLabel(k){ return LANG==="en"?({"问题":"Question","帖子":"Post","评论":"Comment","故事":"Story"}[k]||k):k; }
 function adminReports(){
   const reps=(DB.reports||[]).slice().sort((a,b)=>(b.at||0)-(a.at||0));
-  return `<div class="adm-card"><h4>🚩 举报（未处理 ${reps.filter(r=>!r.handled).length}）</h4>
-    ${CLOUD.enabled?`<button class="adm-btn" onclick="adminLoadReports()">🔄 从云端加载举报</button><div class="adm-row" style="font-size:11px;">需在 CloudBase 建 reports 集合（见后端指南）。处理办法：去「内容审核」隐藏/删除对应内容，或在用户主页/后台处理。</div>`:""}
+  return `<div class="adm-card"><h4>${L("🚩 举报（未处理 "+reps.filter(r=>!r.handled).length+"）","🚩 Reports ("+reps.filter(r=>!r.handled).length+" open)")}</h4>
+    ${CLOUD.enabled?`<button class="adm-btn" onclick="adminLoadReports()">${L("🔄 从云端加载举报","🔄 Load reports from cloud")}</button><div class="adm-row" style="font-size:11px;">${L("需在 CloudBase 建 reports 集合（见后端指南）。处理办法：去「内容审核」隐藏/删除对应内容，或在用户主页/后台处理。","Requires a reports collection in CloudBase (see backend guide). To act: hide/delete the content under Moderation, or handle it from the user's profile.")}</div>`:""}
     ${reps.length?reps.map(r=>`<div class="adm-row ${r.handled?"hidden-row":""}">
-      <div class="meta">${r.reason} · 举报 ${r.kind==="user"?"用户":(r.kind==="post"?"帖子":"问题")} · 举报人 ${escapeHtml(r.byNick||"?")} · ${new Date(r.at).toLocaleString()}</div>
-      <div style="font-size:12px;color:#C9B8D0;">目标ID：${escapeHtml(r.refId||"")}${r.authorId?" · 作者ID："+escapeHtml(r.authorId):""}</div>
-      <div><button class="adm-btn ${r.handled?"":"ok"}" onclick="toggleReportHandled('${r.id}')">${r.handled?"标记未处理":"标记已处理"}</button></div>
-    </div>`).join(""):'<div class="adm-row">暂无举报 🌿</div>'}</div>`;
+      <div class="meta">${L(r.reason,r.reason)} · ${L("举报","reported ")}${r.kind==="user"?L("用户","user"):(r.kind==="post"?L("帖子","post"):L("问题","question"))} · ${L("举报人","by ")}${escapeHtml(r.byNick||"?")} · ${new Date(r.at).toLocaleString()}</div>
+      <div style="font-size:12px;color:#C9B8D0;">${L("目标ID：","Target ID: ")}${escapeHtml(r.refId||"")}${r.authorId?L(" · 作者ID："," · author ID: ")+escapeHtml(r.authorId):""}</div>
+      <div><button class="adm-btn ${r.handled?"":"ok"}" onclick="toggleReportHandled('${r.id}')">${r.handled?L("标记未处理","Mark open"):L("标记已处理","Mark done")}</button></div>
+    </div>`).join(""):'<div class="adm-row">'+L("暂无举报 🌿","No reports 🌿")+'</div>'}</div>`;
 }
 async function adminLoadReports(){
   if(!CLOUD.enabled) return;
   try{ const r=await CLOUD.db.collection("reports").orderBy("at","desc").limit(300).get();
     const cloud=r.data||[]; const map={}; (DB.reports||[]).concat(cloud).forEach(x=>{ map[x.id]=Object.assign({},map[x.id],x); });
-    DB.reports=Object.values(map).sort((a,b)=>(b.at||0)-(a.at||0)); saveDB(); renderAdmin("report"); toast("已加载 ✅","","");
-  }catch(e){ logEvent("error","加载举报失败(可能未建 reports 集合):"+(e.message||e)); toast("加载失败","见运行日志（可能未建 reports 集合）",""); }
+    DB.reports=Object.values(map).sort((a,b)=>(b.at||0)-(a.at||0)); saveDB(); renderAdmin("report"); toast(L("已加载 ✅","Loaded ✅"),"","");
+  }catch(e){ logEvent("error","加载举报失败(可能未建 reports 集合):"+(e.message||e)); toast(L("加载失败","Load failed"),L("见运行日志（可能未建 reports 集合）","See logs (reports collection may be missing)"),""); }
 }
 function toggleReportHandled(id){ const r=(DB.reports||[]).find(x=>x.id===id); if(!r)return; r.handled=!r.handled; saveDB(); if(CLOUD.enabled) cwUpdate("reports",id,{handled:r.handled}); renderAdmin("report"); }
 let modFilter="all";
 function adminMod(){
   const items=allContent().filter(i=> modFilter==="all"?true: modFilter==="hidden"?i.hidden: i.kind===modFilter);
-  const filters=[["all","全部"],["问题","问题"],["帖子","帖子"],["评论","评论"],["故事","故事"],["hidden","已隐藏"]];
-  let html=`<div class="adm-card"><h4>🛡️ 内容审核（${allContent().length} 条）</h4>
-    ${CLOUD.enabled?`<button class="adm-btn" onclick="adminLoadAllContent()">🔄 加载全部内容（含旧废帖）</button><div class="adm-row" style="font-size:11px;">「隐藏」对全员即时生效、且不会再被匹配到——清理旧废帖/废问用它最省事。「删除」仅能删自己创建的（彻底删别人的请在 CloudBase 控制台）。</div>`:""}
+  const filters=[["all",L("全部","All")],["问题",L("问题","Questions")],["帖子",L("帖子","Posts")],["评论",L("评论","Comments")],["故事",L("故事","Stories")],["hidden",L("已隐藏","Hidden")]];
+  let html=`<div class="adm-card"><h4>${L("🛡️ 内容审核（"+allContent().length+" 条）","🛡️ Moderation ("+allContent().length+")")}</h4>
+    ${CLOUD.enabled?`<button class="adm-btn" onclick="adminLoadAllContent()">${L("🔄 加载全部内容（含旧废帖）","🔄 Load all content (incl. old)")}</button><div class="adm-row" style="font-size:11px;">${L("「隐藏」对全员即时生效、且不会再被匹配到——清理旧废帖/废问用它最省事。「删除」仅能删自己创建的（彻底删别人的请在 CloudBase 控制台）。","Hide takes effect for everyone instantly and stops it matching — best for cleaning old junk. Delete only works on your own content (fully delete others' in the CloudBase console).")}</div>`:""}
     <div class="adm-tabs">${filters.map(f=>`<span class="adm-tab ${modFilter===f[0]?"on":""}" onclick="setModFilter('${f[0]}')">${f[1]}</span>`).join("")}</div>
     ${items.length?items.map(i=>`<div class="adm-row ${i.hidden?"hidden-row":""}">
-      <div class="meta">${i.kind} · ${i.who} ${i.hidden?"· 已隐藏":""}</div>${escapeHtml(i.text)}
-      <div><button class="adm-btn ${i.hidden?"ok":"danger"}" onclick="toggleHide('${i.coll}','${i.id}')">${i.hidden?"恢复显示":"隐藏"}</button>
-      <button class="adm-btn danger" onclick="modDelete('${i.coll}','${i.id}')">删除</button></div>
-    </div>`).join(""):'<div class="adm-row">没有内容</div>'}</div>`;
+      <div class="meta">${kindLabel(i.kind)} · ${i.who} ${i.hidden?L("· 已隐藏","· hidden"):""}</div>${escapeHtml(i.text)}
+      <div><button class="adm-btn ${i.hidden?"ok":"danger"}" onclick="toggleHide('${i.coll}','${i.id}')">${i.hidden?L("恢复显示","Unhide"):L("隐藏","Hide")}</button>
+      <button class="adm-btn danger" onclick="modDelete('${i.coll}','${i.id}')">${L("删除","Delete")}</button></div>
+    </div>`).join(""):'<div class="adm-row">'+L("没有内容","No content")+'</div>'}</div>`;
   return html;
 }
 function setModFilter(f){ modFilter=f; renderAdmin("mod"); }
@@ -3122,32 +3168,32 @@ function refreshCurrentFeeds(){ if(currentScreen==="home") renderHome(); if(curr
 function escapeHtml(s){ return String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c])); }
 /* ---- 数据管理 ---- */
 function adminData(){
-  return `<div class="adm-card"><h4>💾 数据管理</h4>
-    <div class="adm-row">导出当前全部数据为 JSON（备份/排查问题）</div>
-    <button class="adm-btn ok" onclick="exportData()">⬇️ 导出 JSON</button>
-    <div class="adm-row" style="margin-top:10px;">导入 JSON（粘贴后覆盖当前数据）</div>
-    <textarea id="importBox" placeholder="粘贴导出的 JSON…" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;min-height:80px;"></textarea>
-    <button class="adm-btn" onclick="importData()">⬆️ 导入并覆盖</button>
-    <div class="adm-row" style="margin-top:10px;color:#F6A9A9;">危险操作：清空所有数据并重置演示</div>
-    <button class="adm-btn danger" onclick="adminReset()">🗑️ 清空重置</button>
+  return `<div class="adm-card"><h4>${L("💾 数据管理","💾 Data")}</h4>
+    <div class="adm-row">${L("导出当前全部数据为 JSON（备份/排查问题）","Export all data as JSON (backup / debugging)")}</div>
+    <button class="adm-btn ok" onclick="exportData()">${L("⬇️ 导出 JSON","⬇️ Export JSON")}</button>
+    <div class="adm-row" style="margin-top:10px;">${L("导入 JSON（粘贴后覆盖当前数据）","Import JSON (overwrites current data)")}</div>
+    <textarea id="importBox" placeholder="${L("粘贴导出的 JSON…","Paste exported JSON…")}" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;min-height:80px;"></textarea>
+    <button class="adm-btn" onclick="importData()">${L("⬆️ 导入并覆盖","⬆️ Import & overwrite")}</button>
+    <div class="adm-row" style="margin-top:10px;color:#F6A9A9;">${L("危险操作：清空所有数据并重置演示","Danger: wipe all data and reset the demo")}</div>
+    <button class="adm-btn danger" onclick="adminReset()">${L("🗑️ 清空重置","🗑️ Wipe & reset")}</button>
   </div>
-  <div class="adm-card"><h4>📝 如何调整代码</h4>
-    <div class="adm-row" style="font-size:12px;line-height:1.7;">这是单个 index.html 文件，所有逻辑都在 &lt;script&gt; 里。改代码＝直接编辑该文件后重新上传到 GitHub。控制台用于<b>线上排查与审核</b>：看报错、查数据、隐藏违规内容、导出备份。改完代码刷新页面即可生效。</div>
+  <div class="adm-card"><h4>${L("📝 如何调整代码","📝 Editing the code")}</h4>
+    <div class="adm-row" style="font-size:12px;line-height:1.7;">${L("这是单个 index.html 文件，所有逻辑都在 &lt;script&gt; 里。改代码＝直接编辑该文件后重新上传到 GitHub。控制台用于<b>线上排查与审核</b>：看报错、查数据、隐藏违规内容、导出备份。改完代码刷新页面即可生效。","This is a single index.html file — all logic lives in &lt;script&gt;. To edit, change the file and re-upload to GitHub. This console is for <b>live debugging &amp; moderation</b>: view errors, inspect data, hide content, export backups. Refresh after editing code.")}</div>
   </div>`;
 }
 function exportData(){
   const blob=new Blob([JSON.stringify(DB,null,2)],{type:"application/json"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="touched-backup-"+Date.now()+".json"; a.click();
-  toast("已导出 ⬇️","",""); logEvent("info","导出数据");
+  toast(L("已导出 ⬇️","Exported ⬇️"),"",""); logEvent("info","导出数据");
 }
 function importData(){
-  try{ const d=JSON.parse(document.getElementById("importBox").value); DB=d; saveDB(); toast("导入成功 ✅","已覆盖当前数据",""); renderAdmin("overview"); }
-  catch(e){ toast("JSON 解析失败 ❌",e.message,""); logEvent("error","导入失败:"+e.message); }
+  try{ const d=JSON.parse(document.getElementById("importBox").value); DB=d; saveDB(); toast(L("导入成功 ✅","Imported ✅"),L("已覆盖当前数据","Current data replaced"),""); renderAdmin("overview"); }
+  catch(e){ toast(L("JSON 解析失败 ❌","JSON parse failed ❌"),e.message,""); logEvent("error","导入失败:"+e.message); }
 }
 function adminReset(){
-  openSheet(`<h3 class="center">确认清空所有数据？</h3><p class="center muted">将删除全部用户/问题/关系并恢复演示数据，不可撤销。</p>
-    <button class="btn block" style="margin-top:12px;background:#D2615E;" onclick="resetDB()">确认清空重置</button>
-    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet()">取消</button>`, true);
+  openSheet(`<h3 class="center">${L("确认清空所有数据？","Wipe all data?")}</h3><p class="center muted">${L("将删除全部用户/问题/关系并恢复演示数据，不可撤销。","Deletes all users/questions/connections and restores demo data. Can't be undone.")}</p>
+    <button class="btn block" style="margin-top:12px;background:#D2615E;" onclick="resetDB()">${L("确认清空重置","Wipe & reset")}</button>
+    <button class="btn ghost block" style="margin-top:10px;" onclick="closeSheet()">${L("取消","Cancel")}</button>`, true);
 }
 
 /* ========== 启动 ========== */
