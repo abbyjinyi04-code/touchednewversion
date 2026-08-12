@@ -790,6 +790,55 @@ function applyStaticI18n(){
 const DB_KEY = "touched_db_v1";
 let DB = null;
 
+/* 用户关键数据的独立备份（不经过 slimForStorage 裁剪，防头像/浏览记录丢失） */
+function _userDataKey(){ return DB.currentUserId ? "touched_ud_"+DB.currentUserId : null; }
+function saveUserLocalData(){
+  const k=_userDataKey(); if(!k) return;
+  const u=me(); const d={
+    avatarImg:(u&&u.avatarImg)||"", bgImg:(u&&u.bg)||"",
+    browsed:DB.browsed||[], seenQuestions:DB.seenQuestions||[], skipped:DB.skipped||[],
+    tutorialDone:!!DB.tutorialDone
+  };
+  try{ d.notesSeen=+(localStorage.getItem("touched_notes_seen_"+DB.currentUserId)||0); }catch(e){}
+  try{ localStorage.setItem(k, JSON.stringify(d)); }catch(e){}
+}
+function restoreUserLocalData(){
+  const k=_userDataKey(); if(!k) return;
+  try{
+    const raw=localStorage.getItem(k); if(!raw) return;
+    const d=JSON.parse(raw); const u=me();
+    if(u){ if(d.avatarImg) u.avatarImg=d.avatarImg; if(d.bgImg) u.bg=d.bgImg; }
+    if(d.browsed && d.browsed.length) DB.browsed=d.browsed;
+    if(d.seenQuestions && d.seenQuestions.length) DB.seenQuestions=d.seenQuestions;
+    if(d.skipped && d.skipped.length) DB.skipped=d.skipped;
+    if(d.tutorialDone) DB.tutorialDone=true;
+    if(d.notesSeen) try{ localStorage.setItem("touched_notes_seen_"+DB.currentUserId, String(d.notesSeen)); }catch(e){}
+    try{saveDB();}catch(e){}
+  }catch(e){}
+}
+/* 云端用户文档的部分更新（只写元数据，不重传大头像/背景图） */
+function cwUserMeta(patch){
+  if(!CLOUD.enabled || !DB.currentUserId) return;
+  try{ CLOUD.db.collection("users").doc(DB.currentUserId).update(plain(patch)).catch(e=>logEvent("error","cwUserMeta: "+(e.message||e))); }catch(e){ logEvent("error","cwUserMeta: "+(e.message||e)); }
+}
+/* 同步用户档案字段到云端（只发文字，不传头像/背景大图，update() 部分更新） */
+function cwUserProfile(u){
+  if(!CLOUD.enabled || !u || !u.id) return;
+  const fields=['nick','age','country','region','status','phase','needs','purpose','time','hobbies','mbti','skills','traits','exp','sign','emoji','phone','isNew','updatedAt','temp','tempWeek','following','blocked'];
+  const patch={}; fields.forEach(k=>{ if(u[k]!==undefined) patch[k]=u[k]; });
+  cwUserMeta(patch);
+}
+/* 将频繁变动的本地状态同步到云端 private + users（防丢失，非实时） */
+function syncPrivateMeta(){
+  if(!CLOUD.enabled || !DB.currentUserId) return;
+  const patch={seenQuestions:DB.seenQuestions||[], skipped:DB.skipped||[], browsed:DB.browsed||[]};
+  try{ patch.notesSeen=+(localStorage.getItem("touched_notes_seen_"+DB.currentUserId)||0); }catch(e){}
+  if(DB.tutorialDone) patch.tutorialDone=true;
+  try{ CWprivate(patch); }catch(e){}
+  cwUserMeta(patch);
+  saveUserLocalData();
+}
+
 /* 生成用于本地缓存的「精简快照」：剥离所有大图 base64（图片只在内存显示 + 存云端，绝不进 localStorage，
    否则共享的配图帖会迅速撑爆浏览器 ~5MB 配额，导致连纯文字帖都保存失败/卡住）。内存里的 DB 不受影响。 */
 function slimForStorage(){
@@ -825,7 +874,7 @@ function resetDB(){ localStorage.removeItem(DB_KEY); localStorage.removeItem("to
    - 有配置 → onSnapshot 实时把云端数据灌入 DB（读），
      关键写操作通过 CW()/CWuser() 同步到云端（写）
    ========================================================= */
-const CLOUD = { enabled:false, app:null, auth:null, db:null, cmd:null, ready:false, started:false, authBusy:false };
+const CLOUD = { enabled:false, app:null, auth:null, db:null, cmd:null, ready:false, started:false, authBusy:false, adminChecked:false, isAdmin:false, adminInfo:null, _lastAdminErr:"" };
 
 function cloudConfigured(){
   return typeof CLOUDBASE_ENV!=="undefined" && CLOUDBASE_ENV && !/^PASTE/.test(CLOUDBASE_ENV);
@@ -873,6 +922,41 @@ function CWdel(coll, id){
 function cwUpdate(coll, id, patch){
   if(!CLOUD.enabled) return;
   try{ CLOUD.db.collection(coll).doc(id).update(plain(patch)).catch(e=>logEvent("error","cwUpdate "+coll+":"+(e.message||e))); }catch(e){ logEvent("error","cwUpdate:"+(e.message||e)); }
+}
+/* ---------- 云端管理员校验（admins/{uid} 文档存在且 active!==false）---------- */
+async function checkCloudAdmin(force){
+  if(!CLOUD.enabled || !DB.currentUserId){ CLOUD.isAdmin=false; CLOUD.adminChecked=true; return false; }
+  if(CLOUD.adminChecked && !force) return CLOUD.isAdmin;
+  try{
+    const r=await CLOUD.db.collection("admins").doc(DB.currentUserId).get();
+    const a=r.data&&r.data[0];
+    CLOUD.adminInfo=a||null;
+    CLOUD.isAdmin=!!(a && a.active!==false);
+    if(!CLOUD.isAdmin) CLOUD._lastAdminErr="文档不存在或无 active:true 字段";
+  }catch(e){
+    CLOUD.adminInfo=null; CLOUD.isAdmin=false; CLOUD._lastAdminErr=e.message||String(e);
+    logEvent("error","管理员校验失败（检查 admins 集合规则/UID）:"+(e.message||e));
+  }
+  CLOUD.adminChecked=true;
+  return CLOUD.isAdmin;
+}
+function requireCloudAdmin(action){
+  if(!CLOUD.enabled) return true; // 本地预览只做调试，不代表线上权限
+  if(CLOUD.isAdmin) return true;
+  toast(L("需要云端管理员权限 🔒","Cloud admin access required 🔒"), action||L("请确认当前账号已加入 admins/{uid}","Make sure this account is in admins/{uid}"), "");
+  return false;
+}
+async function adminUpdateDoc(coll,id,patch){
+  if(CLOUD.enabled && !(await checkCloudAdmin())) throw new Error("not-admin");
+  if(CLOUD.enabled) return CLOUD.db.collection(coll).doc(id).update(plain(patch));
+  const o=findContentObj(coll,id); if(o) Object.assign(o, patch);
+}
+async function adminDeleteDoc(coll,id){
+  if(CLOUD.enabled && !(await checkCloudAdmin())) throw new Error("not-admin");
+  if(CLOUD.enabled) return CLOUD.db.collection(coll).doc(id).remove();
+  if(coll==="questions") DB.questions=DB.questions.filter(x=>x.id!==id);
+  else if(coll==="posts") DB.posts=DB.posts.filter(x=>x.id!==id);
+  else if(coll==="stories") DB.stories=DB.stories.filter(x=>x.id!==id);
 }
 /* 同一错误只记一次，避免轮询刷屏日志 */
 const _loggedOnce={};
@@ -924,7 +1008,7 @@ async function fetchRelationships(){
   }catch(e){ logOnce("rel","取关系失败:"+(e.message||e)); }
 }
 async function fetchMe(){ const uid=DB.currentUserId; const t0=Date.now(); try{ const r=await CLOUD.db.collection("users").doc(uid).get(); logEvent("info","取个人资料 "+(Date.now()-t0)+"ms"); const u=r.data&&r.data[0]; if(u){ upsertUser(u); try{saveDB();}catch(e){} rerenderCurrent(); } }catch(e){ logEvent("error","取个人资料失败:"+(e.message||e)); } }
-async function fetchPrivate(){ const uid=DB.currentUserId; try{ const r=await CLOUD.db.collection("private").doc(uid).get(); DB.private=(r.data&&r.data[0])||{}; }catch(e){ DB.private=DB.private||{}; } }
+async function fetchPrivate(){ const uid=DB.currentUserId; try{ const r=await CLOUD.db.collection("private").doc(uid).get(); DB.private=(r.data&&r.data[0])||{}; const p=DB.private; if(p.browsed && p.browsed.length) DB.browsed=p.browsed; if(p.seenQuestions && p.seenQuestions.length) DB.seenQuestions=p.seenQuestions; if(p.skipped && p.skipped.length) DB.skipped=p.skipped; if(p.notesSeen) try{ localStorage.setItem("touched_notes_seen_"+uid, String(p.notesSeen)); }catch(e){} if(p.tutorialDone) DB.tutorialDone=true; try{saveDB();}catch(e){} }catch(e){ DB.private=DB.private||{}; } }
 /* ---- 通知（收到的轻触/评论/赞）---- */
 let _prevNoteCount=null;
 async function fetchNotifications(){
@@ -957,7 +1041,7 @@ function createNote(toUid, type, refId, refText, content){
 function notesReceived(){ return (DB.notes||[]).filter(n=>n.toUid===DB.currentUserId); }
 function notesSent(){ return (DB.notes||[]).filter(n=>n.fromUid===DB.currentUserId && n.toUid!==DB.currentUserId); }
 function myUnreadNotes(){ let seen=0; try{ seen=+(localStorage.getItem("touched_notes_seen_"+DB.currentUserId)||0); }catch(e){} return notesReceived().filter(n=>(n.at||0)>seen); }
-function markNotesSeen(){ try{ localStorage.setItem("touched_notes_seen_"+DB.currentUserId, String(now())); }catch(e){} updateNavBadge(); }
+function markNotesSeen(){ try{ localStorage.setItem("touched_notes_seen_"+DB.currentUserId, String(now())); }catch(e){} updateNavBadge(); if(CLOUD.enabled) syncPrivateMeta(); }
 function updateNavBadge(){
   const n=myUnreadNotes().length;
   // 红点放在「触碰」导航上（通知组件在触碰页）
@@ -1295,16 +1379,24 @@ async function verifyOtpCode(){
   }
 }
 function afterLogin(uid){
-  showLoader("登录中…", async ()=>{
+  showLoader(L("登录中…","Signing in…"), async ()=>{
     let prof=me();
     if(CLOUD.enabled){ try{ const r=await CLOUD.db.collection("users").doc(uid).get(); const u0=r.data&&r.data[0]; const local=me();
         if(u0){
           // 若本地有更新的编辑（云端写入曾失败/更慢），保留本地并补写云端，避免重登复原
-          if(local && (local.updatedAt||0) > (u0.updatedAt||0)){ CWuser(local); prof=local; logEvent("info","本地档案较新，已保留并补同步云端"); }
+          if(local && (local.updatedAt||0) > (u0.updatedAt||0)){ cwUserProfile(local); prof=local; logEvent("info","本地档案较新，已保留并补同步云端"); }
           else { upsertUser(u0); prof=me()||u0; }
+          // 从云端用户文档恢复元数据（浏览记录/跳过/已看/通知已读/教程）——最可靠路径
+          if(u0.browsed && u0.browsed.length) DB.browsed=u0.browsed;
+          if(u0.seenQuestions && u0.seenQuestions.length) DB.seenQuestions=u0.seenQuestions;
+          if(u0.skipped && u0.skipped.length) DB.skipped=u0.skipped;
+          if(u0.notesSeen) try{ localStorage.setItem("touched_notes_seen_"+uid, String(u0.notesSeen)); }catch(e){}
+          if(u0.tutorialDone) DB.tutorialDone=true;
         }
       }catch(e){ logEvent("error","登录取档案:"+(e.message||e)); } }
-    if(prof && prof.nick){ DB.tutorialDone=true; saveDB(); go("home"); navTo("home"); toast("欢迎回来，"+prof.nick+" 🌷","",""); }
+    // 再用独立 localStorage 备份兜底补漏（头像/背景/浏览记录等）
+    restoreUserLocalData();
+    if(prof && prof.nick){ DB.tutorialDone=true; saveDB(); go("home"); navTo("home"); toast(L("欢迎回来，"+prof.nick+" 🌷","Welcome back, "+prof.nick+" 🌷"),"",""); }
     else { ensureMyUserObj(); startProfile(); }   // 新用户/没填过档案 → 去建档
   });
 }
@@ -1443,7 +1535,7 @@ let editSingle=false;
 function profNext(skip){
   if(!skip){ syncCurrentStep(); if(!stepValid()){ updateProfNext(); return; } }
   if(editSingle){   // 单项编辑：保存这一项就回个人主页 + 档案菜单（不进入全流程）
-    const u=me(); if(u){ Object.assign(u, profDraft); u.updatedAt=now(); saveDB(); CWuser(u); }
+    const u=me(); if(u){ Object.assign(u, profDraft); u.updatedAt=now(); saveDB(); cwUserProfile(u); saveUserLocalData(); }
     editSingle=false; navTo("me"); toast("已保存 🌸","",""); editProfileMenu(); return;
   }
   if(profStepIdx<PROF_STEPS.length-1){ profStepIdx++; renderProfStep(); }
@@ -1456,12 +1548,15 @@ function finishProfile(){
   if(!u.nick) u.nick="匿名小花";
   if(firstTime && !u.avatarImg) u.emoji = ["🌷","🌸","🌹","🌻","🌼","🪷","🐰","🌙","🍃"][Math.floor(Math.random()*9)];
   u.updatedAt=now();
-  saveDB(); CWuser(u);
+  saveDB();
+  if(firstTime){ CWuser(u); }   // 首次建档用 set() 创建文档
+  else { cwUserProfile(u); }    // 后续编辑用 update() 部分更新，避免整条覆盖/丢失
+  saveUserLocalData();
   if(firstTime){
     u.isNew=true; saveDB();
-    showLoader("正在为妳点亮她触…", ()=>{ go("home"); renderHome(); if(!DB.tutorialDone) startTutorial(); });
+    showLoader(L("正在为妳点亮她触…","Lighting up Touched for you…"), ()=>{ go("home"); renderHome(); if(!DB.tutorialDone) startTutorial(); });
   } else {
-    showLoader("已保存 🌸", ()=>{ go("me"); renderMe(); toast("档案已更新 🌷","",""); });
+    showLoader(L("已保存 🌸","Saved 🌸"), ()=>{ go("me"); renderMe(); toast(L("档案已更新 🌷","Profile updated 🌷"),"",""); });
   }
 }
 
@@ -1549,7 +1644,7 @@ function renderWorry(){
 function skipQuestion(id){
   if(!DB.seenQuestions.includes(id)) DB.seenQuestions.push(id);
   DB.skipped=DB.skipped||[]; if(!DB.skipped.includes(id)) DB.skipped.push(id);   // 记录跳过的，可回看
-  saveDB();
+  saveDB(); if(CLOUD.enabled) syncPrivateMeta();
   const c=document.getElementById("qcard");
   if(c){ c.style.transition="transform .35s,opacity .35s"; c.style.transform="translateX(120%) rotate(8deg)"; c.style.opacity="0"; }
   setTimeout(renderWorry,300);
@@ -1578,7 +1673,7 @@ function unskip(id){
   saveDB(); closeSheet(); toast("已放回烦恼屋 🌿","",""); if(currentScreen==="home"&&homeTab==="worry") renderWorry();
 }
 /* ---- 浏览过的烦恼记录（个人主页入口，永不消失，随时回看/链接）---- */
-function markBrowsed(id){ DB.browsed=DB.browsed||[]; const i=DB.browsed.indexOf(id); if(i>=0) DB.browsed.splice(i,1); DB.browsed.unshift(id); if(DB.browsed.length>200) DB.browsed.length=200; saveDB(); }
+function markBrowsed(id){ DB.browsed=DB.browsed||[]; const i=DB.browsed.indexOf(id); if(i>=0) DB.browsed.splice(i,1); DB.browsed.unshift(id); if(DB.browsed.length>200) DB.browsed.length=200; saveDB(); if(CLOUD.enabled) syncPrivateMeta(); }
 function showBrowsed(){
   const list=(DB.browsed||[]).map(id=>DB.questions.find(q=>q.id===id)).filter(q=>q&&!q.hidden&&q.authorId!==DB.currentUserId);
   openSheet(`<h3>浏览过的烦恼 💭</h3><p class="field-hint">妳看过的每一个烦恼都留在这里，随时可以回来轻触或拉手 🌸</p>
@@ -2727,7 +2822,7 @@ function renderMe(){
       <div class="menu-item" onclick="changeBg()">${L("🖼️ 更换背景图","🖼️ Change background")}<span>›</span></div>
       <div class="menu-item" onclick="toggleLang()">🌐 语言 / Language<span>${LANG==="zh"?"中文":"English"} ›</span></div>
       ${myBlocked().length?`<div class="menu-item" onclick="showBlocked()">${L("🙈 已屏蔽的人","🙈 Blocked")}<span>${myBlocked().length} ›</span></div>`:""}
-      <div class="menu-item" onclick="openAdminGate()" style="opacity:.7;font-size:13px;">${L("🛠️ 开发者入口","🛠️ Developer")}<span class="muted" style="font-weight:400;">${L("需口令","passcode")} ›</span></div>
+      <div class="menu-item" onclick="clickDevEntry()" style="opacity:.7;font-size:13px;">${L("🛠️ 开发者入口","🛠️ Developer")}<span class="muted" style="font-weight:400;">${L("管理控制台","admin console")} ›</span></div>
       <div class="menu-item" onclick="logout()" style="color:#D2615E;justify-content:center;">${L("退出登录","Log out")}</div>
       <p class="field-hint center" style="margin:4px 16px 0;">她触 Touched · ${L("内测版","Beta")} v0.4</p>
     </div>`;
@@ -2743,10 +2838,10 @@ function changeAvatar(){
     <div class="emoji-grid">${opts.map(o=>`<span class="bubble" onclick="setAvatar('${o}')">${o}</span>`).join("")}</div>`);
 }
 function pickAvatarImage(){
-  pickImage(256, 140000, (data)=>{ const u=me(); u.avatarImg=data; saveDB(); CWuser(u); closeSheet(); renderMe(); toast("头像已更新 🌸","",""); });
+  pickImage(256, 140000, (data)=>{ const u=me(); u.avatarImg=data; saveDB(); cwUserMeta({avatarImg:data}); saveUserLocalData(); closeSheet(); renderMe(); toast(L("头像已更新 🌸","Avatar updated 🌸"),"",""); });
 }
-function clearAvatarImage(){ const u=me(); u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
-function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); CWuser(u); closeSheet(); renderMe(); }
+function clearAvatarImage(){ const u=me(); u.avatarImg=""; saveDB(); cwUserMeta({avatarImg:""}); saveUserLocalData(); closeSheet(); renderMe(); }
+function setAvatar(e){ const u=me(); u.emoji=e; u.avatarImg=""; saveDB(); cwUserMeta({emoji:e,avatarImg:""}); saveUserLocalData(); closeSheet(); renderMe(); }
 /* 头像内容：有照片显示照片，否则显示 emoji */
 function avInner(u){ return (u && u.avatarImg) ? `<img src="${u.avatarImg}" alt="">` : (u && u.emoji || "🌸"); }
 function changeBg(){
@@ -2758,9 +2853,9 @@ function changeBg(){
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">${colors.map(c=>`<div style="height:70px;border-radius:14px;background:${c};cursor:pointer;" onclick="setBg('${c}')"></div>`).join("")}</div>`);
 }
 function bgStyle(bg){ if(!bg) return ""; return /^(data:|http)/.test(bg) ? `background:url(${bg}) center/cover` : `background:${bg}`; }
-function setBg(c){ me().bg=c; saveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(c); closeSheet(); toast(c?"背景已更换 🖼️":"已改回默认","",""); }
+function setBg(c){ me().bg=c; saveDB(); cwUserMeta({bg:c}); saveUserLocalData(); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(c); closeSheet(); toast(c?L("背景已更换 🖼️","Background changed 🖼️"):L("已改回默认","Back to default"),"",""); }
 function pickBgImage(){
-  pickImage(1200, 500000, (data)=>{ me().bg=data; saveDB(); CWuser(me()); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast("背景已更换 🖼️","",""); });
+  pickImage(1200, 500000, (data)=>{ me().bg=data; saveDB(); cwUserMeta({bg:data}); saveUserLocalData(); const el=document.getElementById("profBgImg"); if(el) el.style.cssText=bgStyle(data); closeSheet(); toast(L("背景已更换 🖼️","Background changed 🖼️"),"",""); });
 }
 function editSign(){
   openSheet(`<h3>${L("个人签名 ✏️","Your bio ✏️")}</h3><textarea id="signText" maxlength="40" placeholder="${L("用一句话介绍此刻的妳…","One line about you right now…")}">${me().sign||""}</textarea>
@@ -2968,7 +3063,7 @@ function doLogout(){
   if(CLOUD.enabled && CLOUD.auth){
     // 匿名模式：登出会切换成新的匿名身份，刷新即可重新进入
     try{ CLOUD.auth.signOut&&CLOUD.auth.signOut(); }catch(e){}
-    CLOUD.started=false; closeSheet();
+    CLOUD.started=false; CLOUD.adminChecked=false; CLOUD.isAdmin=false; adminUnlocked=false; closeSheet();
     location.reload(); return;
   }
   DB.currentUserId=null; saveDB(); closeSheet();
@@ -2980,8 +3075,10 @@ function resetWelcome(){ document.querySelectorAll("#welcomeLines p").forEach(p=
 document.addEventListener("input",e=>{ if(e.target.id==="chatText"){ e.target.style.height="auto"; e.target.style.height=Math.min(e.target.scrollHeight,90)+"px"; } });
 
 /* ========== 14. 开发者 / 管理员视角 ==========
-   访问方式：网址后加 #dev 打开口令门；或在「我的」页底部连点版本号5次。
-   默认口令：touched-admin（可在控制台内修改，并可添加信任姐妹的口令）
+   访问方式：「我的」页 →「开发者入口」，或网址后加 #dev。
+   线上授权：校验 CloudBase 的 admins/{当前登录UID} 文档（存在且 active!==false 即为管理员）。
+   要加管理员：在 CloudBase 建 admins 集合，用对方 UID 作文档 ID，内容 {"active":true}。
+   本地未连云时才有「本机调试口令」（仅排查用，不代表线上权限）。
 */
 const DEV_LOG=[];
 function logEvent(type, msg){
@@ -2993,27 +3090,90 @@ window.addEventListener("error", e=>{ logEvent("error", (e.message||"未知错�
 window.addEventListener("unhandledrejection", e=>{ logEvent("error", "Promise: "+(e.reason&&e.reason.message||e.reason)); });
 (function(){ const _ce=console.error.bind(console); console.error=function(){ const msg=[].join.call(arguments," "); if(/realtime|ws event|WEBSOCKET|SOCKET_CONNECTION/i.test(msg)){ logOnce("wsnoise","实时通道未连上(已用轮询兜底，可忽略)"); } else { logEvent("error", msg); } _ce.apply(null,arguments); }; })();
 
-function adminConfig(){ if(!DB.admin) DB.admin={pass:"touched-admin", extra:[]}; return DB.admin; }
+function adminConfig(){ if(!DB.admin) DB.admin={pass:"", extra:[]}; return DB.admin; }
 let adminUnlocked=false;
-function openAdminGate(){
+/* 「我的」页开发者入口：云端模式走 UID 白名单校验；本地模式走调试口令 */
+async function clickDevEntry(){
+  if(CLOUD.enabled){
+    const ok=await checkCloudAdmin(true);
+    if(ok){ adminUnlocked=true; go("admin"); renderAdmin("overview"); return; }
+    openAdminGate(); // 显示"如何把 UID 加入 admins"的说明
+    return;
+  }
+  openAdminGate();
+}
+async function openAdminGate(){
   go("admin");
+  if(CLOUD.enabled){
+    document.getElementById("adminBody").innerHTML=`<div class="gate">
+      <div style="font-size:46px;">🛠️</div>
+      <h2 style="color:#fff;">${L("开发者控制台","Developer Console")}</h2>
+      <p style="color:#B9A7C8;font-size:13px;">${L("正在校验当前登录账号的云端管理员权限…","Checking cloud admin access for this account…")}</p>
+    </div>`;
+    const ok=await checkCloudAdmin(true);
+    if(ok){ adminUnlocked=true; logEvent("info","云端管理员已授权"); renderAdmin("overview"); }
+    else {
+      adminUnlocked=false;
+      const errMsg=CLOUD._lastAdminErr||L("未知错误","unknown error");
+      document.getElementById("adminBody").innerHTML=`<div class="gate">
+        <div style="font-size:46px;">🔒</div>
+        <h2 style="color:#fff;">${L("需要云端管理员权限","Cloud admin access required")}</h2>
+        <p style="color:#F6A9A9;font-size:13px;margin:8px 0;word-break:break-all;">${L("⚠ 校验失败：","⚠ Check failed: ")}${escapeHtml(errMsg)}</p>
+        <p style="color:#B9A7C8;font-size:13px;">${L("请先登录已加入 <code>admins</code> 集合的账号。添加管理员的方法：","Sign in with an account added to the <code>admins</code> collection. To add an admin:")}</p>
+        <div class="adm-card" style="text-align:left;margin:12px 0;">
+          <div style="font-size:13px;line-height:1.8;color:#D5C8DE;">
+            <b>${L("📋 操作步骤：","📋 Steps:")}</b><br>
+            ${L("1. 复制妳的 UID（下面这条）","1. Copy your UID (below)")}<br>
+            ${L("2. 打开 CloudBase 控制台 → 数据库 → 新建 <code style=\"background:#332A3B;padding:1px 5px;border-radius:3px;\">admins</code> 集合","2. CloudBase console → Database → create an <code style=\"background:#332A3B;padding:1px 5px;border-radius:3px;\">admins</code> collection")}<br>
+            ${L("3. 新增文档，<b>文档 ID 必须等于上面的 UID</b>（不是自动生成）","3. Add a document whose <b>ID equals your UID</b> (not auto-generated)")}<br>
+            ${L("4. 文档内容：","4. Document body: ")}<code style="background:#332A3B;padding:1px 5px;border-radius:3px;">{"active":true,"role":"admin"}</code><br>
+            ${L("5. ⚠️ <b>关键</b>：admins 集合权限设置里，read 设为允许登录用户读取","5. ⚠️ <b>Key</b>: in the admins collection rules, allow signed-in users to read")}<br>
+            ${L("6. 回到这里点「重新校验」","6. Come back and tap Re-check")}
+          </div>
+          <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="color:#B9A7C8;font-size:12px;">${L("妳的 UID：","Your UID: ")}</span>
+            <code id="adminMyUid" style="background:#332A3B;padding:4px 10px;border-radius:6px;word-break:break-all;font-size:13px;flex:1;min-width:0;color:#F2C4A0;font-weight:bold;">${escapeHtml(DB.currentUserId||L("未知","unknown"))}</code>
+            <button class="adm-btn ok" onclick="copyAdminUid()" style="flex-shrink:0;">${L("📋 复制","📋 Copy")}</button>
+          </div>
+        </div>
+        <button class="btn block" style="margin-top:12px;" onclick="checkCloudAdmin(true).then(ok=>{ if(ok){ adminUnlocked=true; renderAdmin('overview'); } else toast('${L("仍未授权 🔒","Still not authorized 🔒")}','${L("错误：","Error: ")}'+(CLOUD._lastAdminErr||'${L("未知","unknown")}'),''); })">${L("重新校验","Re-check")}</button>
+        <a class="link" style="color:#9C8AAC;margin-top:8px;display:inline-block;" onclick="exitAdmin()">${L("返回 App","Back to app")}</a>
+      </div>`;
+    }
+    return;
+  }
+  // 本地调试模式（未连云）：仅本机排查，不代表线上权限
   if(adminUnlocked){ renderAdmin("overview"); return; }
   document.getElementById("adminBody").innerHTML=`
     <div class="gate">
       <div style="font-size:46px;">🛠️</div>
-      <h2 style="color:#fff;">${L("开发者控制台","Developer Console")}</h2>
-      <p style="color:#B9A7C8;font-size:13px;">${L("仅限管理员。请输入口令。","Admins only. Enter the passcode.")}</p>
+      <h2 style="color:#fff;">${L("本地调试控制台","Local Debug Console")}</h2>
+      <p style="color:#B9A7C8;font-size:13px;">${L("当前未连接云端，仅用于本机排查，不代表线上管理员权限。","Not connected to the cloud — local debugging only, not live admin access.")}</p>
       <input id="admPass" type="password" placeholder="${L("管理员口令","Admin passcode")}" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;text-align:center;margin-top:10px;">
       <button class="btn block" style="margin-top:12px;" onclick="checkAdminPass()">${L("进入 →","Enter →")}</button>
-      <p style="color:#6E5E7E;font-size:11px;margin-top:14px;">${L("默认口令 touched-admin，进入后可修改","Default passcode: touched-admin (changeable inside)")}</p>
+      <p style="color:#6E5E7E;font-size:11px;margin-top:14px;">${L("首次可自行设置本机调试口令；线上请使用 admins/{uid} 授权。","Set a local debug passcode on first use; online uses admins/{uid}.")}</p>
       <a class="link" style="color:#9C8AAC;margin-top:8px;display:inline-block;" onclick="exitAdmin()">${L("返回 App","Back to app")}</a>
     </div>`;
   setTimeout(()=>{ const i=document.getElementById("admPass"); if(i) i.focus(); },200);
 }
+function copyAdminUid(){
+  const el=document.getElementById("adminMyUid");
+  if(!el){ toast(L("找不到UID元素 🔒","Can't find UID 🔒"),"",""); return; }
+  const text=el.textContent||"";
+  function fallbackCopy(t){
+    const ta=document.createElement("textarea"); ta.value=t; ta.style.position="fixed"; ta.style.left="-9999px";
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); toast(L("已复制 ✅","Copied ✅"),L("UID已复制到剪贴板","UID copied to clipboard"),"📋"); }catch(e){ toast(L("复制失败","Copy failed"),L("请手动选中UID复制","Please select the UID manually"),""); }
+    document.body.removeChild(ta);
+  }
+  if(navigator.clipboard){ navigator.clipboard.writeText(text).then(()=>toast(L("已复制 ✅","Copied ✅"),L("UID已复制到剪贴板","UID copied to clipboard"),"📋")).catch(()=>fallbackCopy(text)); }
+  else fallbackCopy(text);
+}
 function checkAdminPass(){
   const v=(document.getElementById("admPass").value||"").trim();
   const cfg=adminConfig();
-  if(v===cfg.pass || cfg.extra.includes(v)){ adminUnlocked=true; logEvent("info","管理员登录"); renderAdmin("overview"); }
+  if(!cfg.pass && v.length>=8){ cfg.pass=v; saveDB(); adminUnlocked=true; logEvent("info","本地调试口令已设置"); renderAdmin("overview"); return; }
+  if(v && (v===cfg.pass || cfg.extra.includes(v))){ adminUnlocked=true; logEvent("info","本地调试入口已解锁"); renderAdmin("overview"); }
   else { toast(L("口令不正确 🔒","Wrong passcode 🔒"),"",""); }
 }
 function exitAdmin(){
@@ -3053,12 +3213,10 @@ function adminOverview(){
       <div class="adm-row">${L("当前登录：","Signed in: ")}${DB.currentUserId?(me()?me().nick+"（"+me().id+"）":L("异常用户ID","bad user ID")):L("未登录","not signed in")}</div>
       <div class="adm-row">${L("数据完整性：","Data integrity: ")}${checkIntegrity()}</div>
     </div>
-    <div class="adm-card"><h4>${L("🔑 管理员设置","🔑 Admin settings")}</h4>
-      <div class="adm-row">${L("当前口令：","Passcode: ")}<code>${adminConfig().pass}</code></div>
-      <div style="display:flex;gap:6px;margin-top:6px;"><input id="newPass" placeholder="${L("设置新口令","New passcode")}" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn ok" onclick="setAdminPass()">${L("更新","Update")}</button></div>
-      <div style="margin-top:10px;font-size:12px;color:#B9A7C8;">${L("信任姐妹口令（额外可用口令，逗号分隔可加多个）：","Trusted passcodes (extra logins, comma-separated):")}</div>
-      <div style="display:flex;gap:6px;margin-top:6px;"><input id="extraPass" placeholder="${L("如：lily2026","e.g. lily2026")}" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn" onclick="addAdmin()">${L("添加","Add")}</button></div>
-      ${adminConfig().extra.length?`<div class="adm-row" style="margin-top:8px;">${L("已授权：","Authorized: ")}${adminConfig().extra.map(x=>`<code>${x}</code>`).join("、")}</div>`:""}
+    <div class="adm-card"><h4>${L("🔑 管理员授权","🔑 Admin authorization")}</h4>
+      <div class="adm-row">${L("线上权限：","Cloud access: ")}${CLOUD.enabled?(CLOUD.isAdmin?L("✅ 当前账号已通过 admins/{uid} 校验","✅ This account passed admins/{uid}"):L("🔒 当前账号未通过云端校验","🔒 Not authorized by the cloud")):L("本地调试模式","local debug mode")}</div>
+      <div class="adm-row" style="font-size:12px;line-height:1.7;">${L("GitHub Pages 前端口令不能保护云端数据。线上审核由 CloudBase 的 admins/{uid} 集合校验当前登录 UID。要加管理员：在 CloudBase 建 admins 集合，用对方 UID 作文档 ID，内容 {\"active\":true}。","A front-end passcode on GitHub Pages can't protect cloud data. Live moderation is gated by the CloudBase admins/{uid} collection. To add an admin: create a doc in admins whose ID is her UID, body {\"active\":true}.")}</div>
+      ${!CLOUD.enabled?`<div style="display:flex;gap:6px;margin-top:6px;"><input id="newPass" placeholder="${L("设置本机调试口令（至少8位）","Local debug passcode (8+ chars)")}" style="background:#332A3B;border:1px solid #4A3D54;color:#fff;"><button class="adm-btn ok" onclick="setAdminPass()">${L("更新","Update")}</button></div>`:""}
     </div>`;
 }
 function checkIntegrity(){
@@ -3067,8 +3225,8 @@ function checkIntegrity(){
   DB.questions.forEach(q=>{ if(!userById(q.authorId)) issues.push("问题"+q.id+"作者缺失"); });
   return issues.length?('⚠️ '+issues.length+' 处：'+issues.slice(0,3).join("；")):"✅ 正常";
 }
-function setAdminPass(){ const v=(document.getElementById("newPass").value||"").trim(); if(v.length<4){ toast(L("口令至少4位 🔒","At least 4 characters 🔒"),"",""); return; } adminConfig().pass=v; saveDB(); renderAdmin("overview"); toast(L("口令已更新 🔑","Passcode updated 🔑"),L("（本机生效）","(this device)"),""); }
-function addAdmin(){ const v=(document.getElementById("extraPass").value||"").trim(); if(!v) return; v.split(",").map(s=>s.trim()).filter(Boolean).forEach(p=>{ if(!adminConfig().extra.includes(p)) adminConfig().extra.push(p); }); saveDB(); renderAdmin("overview"); toast(L("已添加信任口令 🌸","Passcode added 🌸"),L("（本机生效）","(this device)"),""); }
+function setAdminPass(){ const v=(document.getElementById("newPass").value||"").trim(); if(v.length<8){ toast(L("本机调试口令至少8位 🔒","Local debug passcode needs 8+ chars 🔒"),"",""); return; } adminConfig().pass=v; adminConfig().extra=[]; saveDB(); renderAdmin("overview"); toast(L("本机调试口令已更新 🔑","Local debug passcode updated 🔑"),"",""); }
+function addAdmin(){ toast(L("线上管理员请在 CloudBase admins/{uid} 授权 🔒","Add cloud admins via CloudBase admins/{uid} 🔒"),"",""); }
 function adminLog(){
   if(!DEV_LOG.length) return `<div class="adm-card"><h4>${L("📜 运行日志","📜 Logs")}</h4><div class="adm-row">${L("暂无日志，一切平稳 🌿","No logs — all calm 🌿")}</div></div>`;
   return `<div class="adm-card"><h4>${L("📜 运行日志（最新在上）","📜 Logs (newest first)")}<span class="adm-btn" style="float:right;" onclick="clearLog()">${L("清空","Clear")}</span></h4>
@@ -3082,6 +3240,7 @@ function runSelfTest(){
     out.push(typeof matchScore==="function"?"✅ 匹配引擎可用":"❌ 匹配引擎缺失");
     out.push(DB.users.every(u=>u.id)?"✅ 用户ID完整":"❌ 用户ID异常");
     out.push("✅ localStorage 读写正常");
+    out.push(CLOUD.enabled?(CLOUD.isAdmin?"✅ 云端管理员已授权":"⚠️ 云端管理员未授权"):"ℹ️ 本地调试模式");
   }catch(e){ ok=false; out.push("❌ "+e.message); }
   document.getElementById("selfTestOut").innerHTML=out.map(o=>`<div class="log-line ${o[0]==="✅"?"info":""}">${o}</div>`).join("");
 }
@@ -3149,19 +3308,25 @@ function findContentObj(coll,id){
   if(coll==="comment"){ const [pid,idx]=id.split("|"); const p=DB.posts.find(x=>x.id===pid); return p&&p.comments[+idx]; }
   return null;
 }
-function toggleHide(coll,id){
-  const o=findContentObj(coll,id); if(!o) return; o.hidden=!o.hidden; saveDB();
-  // 用 update 只改 hidden 字段（管理员可隐藏任何人内容；隐藏后不再出现在烦恼屋/派对屋/匹配里）
-  if(coll==="comment"){ const p=DB.posts.find(x=>x.id===id.split("|")[0]); CW("posts",p); }
-  else if(CLOUD.enabled) cwUpdate(coll,id,{hidden:o.hidden}); else CW(coll,o);
+async function toggleHide(coll,id){
+  const o=findContentObj(coll,id); if(!o) return;
+  if(!requireCloudAdmin()) return;   // 线上必须是 admins/{uid} 白名单账号
+  o.hidden=!o.hidden; saveDB();
+  try{
+    if(coll==="comment"){ const p=DB.posts.find(x=>x.id===id.split("|")[0]); if(p) await adminUpdateDoc("posts",p.id,{comments:p.comments}); }
+    else await adminUpdateDoc(coll,id,{hidden:o.hidden});   // update 只改 hidden 字段；管理员可隐藏任何人内容
+  }catch(e){ logEvent("error","审核隐藏失败:"+(e.message||e)); toast(L("操作失败","Action failed"),L("需要管理员权限或检查规则","Need admin access / check rules"),""); }
   logEvent("info","审核："+(o.hidden?"隐藏":"恢复")+" "+coll); renderAdmin("mod"); refreshCurrentFeeds(); nextWorryResetIfHidden(id);
 }
 function nextWorryResetIfHidden(id){ if(_shownWorryId===id){ _shownWorryId=null; if(currentScreen==="home"&&homeTab==="worry") renderWorry(); } }
-function modDelete(coll,id){
-  if(coll==="comment"){ const [pid,idx]=id.split("|"); const p=DB.posts.find(x=>x.id===pid); if(p){ p.comments.splice(+idx,1); CW("posts",p); } }
-  else if(coll==="questions"){ DB.questions=DB.questions.filter(x=>x.id!==id); CWdel("questions",id); }
-  else if(coll==="posts"){ DB.posts=DB.posts.filter(x=>x.id!==id); CWdel("posts",id); }
-  else if(coll==="stories"){ DB.stories=DB.stories.filter(x=>x.id!==id); CWdel("stories",id); }
+async function modDelete(coll,id){
+  if(!requireCloudAdmin()) return;
+  try{
+    if(coll==="comment"){ const [pid,idx]=id.split("|"); const p=DB.posts.find(x=>x.id===pid); if(p){ p.comments.splice(+idx,1); await adminUpdateDoc("posts",pid,{comments:p.comments}); } }
+    else if(coll==="questions"){ DB.questions=DB.questions.filter(x=>x.id!==id); await adminDeleteDoc("questions",id); }
+    else if(coll==="posts"){ DB.posts=DB.posts.filter(x=>x.id!==id); await adminDeleteDoc("posts",id); }
+    else if(coll==="stories"){ DB.stories=DB.stories.filter(x=>x.id!==id); await adminDeleteDoc("stories",id); }
+  }catch(e){ logEvent("error","审核删除失败:"+(e.message||e)); toast(L("删除失败","Delete failed"),L("需要管理员权限或检查规则","Need admin access / check rules"),""); }
   saveDB(); logEvent("info","审核删除 "+coll); renderAdmin("mod"); refreshCurrentFeeds();
 }
 function refreshCurrentFeeds(){ if(currentScreen==="home") renderHome(); if(currentScreen==="aware") renderAware(); }
@@ -3228,14 +3393,14 @@ function boot(){
         if(checkAdminHash()){ openAdminGate(); return; }
         go("welcome"); playWelcome(); return;
       }
-      DB.currentUserId=uid; hideBanner(); cloudStart();
+      DB.currentUserId=uid; hideBanner(); restoreUserLocalData(); cloudStart();
       if(checkAdminHash()){ openAdminGate(); return; }
       // 立即进首页（撤掉遮罩），不卡等档案请求；档案没填完再后台转去建档
       go("home"); navTo("home");
       CLOUD.db.collection("users").doc(uid).get().then(r=>{
         const p=r.data&&r.data[0]; const local=me();
         if(p){
-          if(local && (local.updatedAt||0) > (p.updatedAt||0)){ CWuser(local); rerenderCurrent(); logEvent("info","本地档案较新，已保留并补同步云端"); }
+          if(local && (local.updatedAt||0) > (p.updatedAt||0)){ cwUserProfile(local); rerenderCurrent(); logEvent("info","本地档案较新，已保留并补同步云端"); }
           else { upsertUser(p); if(!p.nick){ ensureMyUserObj(); startProfile(); } else rerenderCurrent(); }
         }
         else { ensureMyUserObj(); startProfile(); }
